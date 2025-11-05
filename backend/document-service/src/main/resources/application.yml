@@ -1,0 +1,42 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: document-service
+  datasource:
+    url: jdbc:postgresql://localhost:5432/document_db
+    username: postgres
+    password: postgres
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 10MB
+      max-request-size: 10MB
+
+# File storage configuration
+storage:
+  type: local # local or azure
+  local:
+    upload-dir: ./uploads
+  azure:
+    connection-string: ${AZURE_STORAGE_CONNECTION_STRING:}
+    container-name: documents
+
+# External service URLs
+services:
+  rag-ingest:
+    url: http://localhost:8084
+
+logging:
+  level:
+    com.learningassistant: DEBUG
