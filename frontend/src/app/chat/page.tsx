@@ -4,11 +4,23 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { ArrowUp, Lightbulb, BookOpen, BarChart3, Pencil, HelpCircle, Globe, Paperclip } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
+import { useChat } from '@/hooks/useChat';
+import { useDocuments } from '@/hooks/useDocuments';
+import { useAuthContext } from '@/contexts/AuthContext';
+import { AIMessage } from '@/components/thread/AIMessage';
+import { UserMessage } from '@/components/thread/UserMessage';
+import { ThinkingStatus } from '@/components/thread/ThinkingStatus';
 
 export const ChatPage = () => {
   const [greeting, setGreeting] = useState<string>('');
   const [message, setMessage] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  
+  const { user } = useAuthContext();
+  const { messages, currentSession, isSending, sendMessage } = useChat(user?.id || '');
+  const { uploadDocument, isUploading, uploadProgress } = useDocuments(user?.id || '');
 
   useEffect(() => {
     const getTimeBasedGreeting = () => {
@@ -42,19 +54,80 @@ export const ChatPage = () => {
     }
   };
 
+  const handleSend = async () => {
+    if (!message.trim() || isSending || !currentSession) return;
+    
+    const msg = message;
+    setMessage('');
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+    }
+    
+    await sendMessage(msg);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    await uploadDocument(file);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  const hasMessages = messages.length > 0;
+
   return (
     <div className={cn(
       'bg-secondary w-full',
-      'absolute inset-0 flex h-full w-full flex-col items-center justify-center'
+      'absolute inset-0 flex h-full w-full flex-col',
+      !hasMessages && 'items-center justify-center'
     )}>
-      <div className="mx-auto flex w-full max-w-3xl flex-col items-start justify-start px-8">
-        <Flex
-          items="start"
-          justify="start"
-          direction="col"
-          className="w-full pb-4 h-full"
-        >
-          <div className="mb-4 flex w-full flex-col items-center gap-1">
+      <div className={cn(
+        'mx-auto flex w-full max-w-3xl flex-col items-start justify-start px-8',
+        hasMessages && 'h-full'
+      )}>
+        {/* Messages View */}
+        {hasMessages && (
+          <div className="flex-1 w-full overflow-y-auto py-4 space-y-4">
+            {messages.map((msg, idx) => (
+              msg.role === 'user' ? (
+                <UserMessage key={idx} message={msg.content} />
+              ) : (
+                <AIMessage key={idx} content={msg.content} isCompleted />
+              )
+            ))}
+            {isSending && (
+              <div className="py-4">
+                <ThinkingStatus text="Thinking" />
+                <AIMessage content="" isGenerating />
+              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+        )}
+
+        {/* Empty State */}
+        {!hasMessages && (
+          <Flex
+            items="start"
+            justify="start"
+            direction="col"
+            className="w-full pb-4 h-full"
+          >
+            <div className="mb-4 flex w-full flex-col items-center gap-1">
             <Flex
               direction="col"
               className="relative h-[60px] w-full items-center justify-center overflow-hidden"
@@ -63,62 +136,87 @@ export const ChatPage = () => {
                 {greeting}
               </h1>
             </Flex>
-          </div>
+            </div>
+          </Flex>
+        )}
 
-          <div className="w-full px-3">
-            <Flex
-              direction="col"
-              className="bg-background border-hard/50 shadow-subtle-sm relative z-10 w-full rounded-xl border"
-            >
-              <div className="flex w-full flex-shrink-0 overflow-hidden rounded-lg">
-                <div className="w-full">
-                  <Flex className="flex w-full flex-row items-end gap-0">
-                    <div className="flex-1 px-3 pt-3">
-                      <textarea
-                        ref={textareaRef}
-                        value={message}
-                        onChange={handleInput}
-                        placeholder="Ask anything"
-                        className="w-full resize-none border-none bg-transparent text-sm outline-none placeholder:text-muted-foreground focus-visible:outline-none min-h-[60px] max-h-[200px]"
-                        rows={1}
-                      />
-                    </div>
+        {/* Input Area */}
+        <div className={cn('w-full px-3', hasMessages && 'sticky bottom-0 pb-4')}>
+          {isUploading && (
+            <div className="mb-2 text-xs text-muted-foreground">
+              Uploading... {uploadProgress}%
+            </div>
+          )}
+          <Flex
+            direction="col"
+            className="bg-background border-hard/50 shadow-subtle-sm relative z-10 w-full rounded-xl border"
+          >
+            <div className="flex w-full flex-shrink-0 overflow-hidden rounded-lg">
+              <div className="w-full">
+                <Flex className="flex w-full flex-row items-end gap-0">
+                  <div className="flex-1 px-3 pt-3">
+                    <textarea
+                      ref={textareaRef}
+                      value={message}
+                      onChange={handleInput}
+                      onKeyDown={handleKeyDown}
+                      placeholder={currentSession ? "Ask anything" : "Create a session first"}
+                      disabled={!currentSession || isSending}
+                      className="w-full resize-none border-none bg-transparent text-sm outline-none placeholder:text-muted-foreground focus-visible:outline-none min-h-[60px] max-h-[200px] disabled:opacity-50"
+                      rows={1}
+                    />
+                  </div>
+                </Flex>
+
+                <Flex
+                  className="border-border w-full gap-0 border-t border-dashed px-2 py-2"
+                  gap="none"
+                  items="center"
+                  justify="between"
+                >
+                  <Flex gap="xs" items="center" className="shrink-0">
+                    <Button variant="secondary" size="xs" rounded="lg">
+                      <span className="text-xs">GPT-4</span>
+                    </Button>
+                    <Button variant="ghost" size="icon-xs">
+                      <Globe className="h-3.5 w-3.5" />
+                    </Button>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".pdf,.doc,.docx,.txt"
+                      onChange={handleFileUpload}
+                      className="hidden"
+                    />
+                    <Button 
+                      variant="ghost" 
+                      size="icon-xs"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={isUploading}
+                    >
+                      <Paperclip className="h-3.5 w-3.5" />
+                    </Button>
                   </Flex>
 
-                  <Flex
-                    className="border-border w-full gap-0 border-t border-dashed px-2 py-2"
-                    gap="none"
-                    items="center"
-                    justify="between"
-                  >
-                    <Flex gap="xs" items="center" className="shrink-0">
-                      <Button variant="secondary" size="xs" rounded="lg">
-                        <span className="text-xs">Gemini Flash 2.0</span>
-                      </Button>
-                      <Button variant="ghost" size="icon-xs">
-                        <Globe className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button variant="ghost" size="icon-xs">
-                        <Paperclip className="h-3.5 w-3.5" />
-                      </Button>
-                    </Flex>
-
-                    <Flex gap="md" items="center">
-                      <Button
-                        size="icon-xs"
-                        rounded="lg"
-                        className="bg-foreground text-background hover:opacity-90"
-                      >
-                        <ArrowUp className="h-3.5 w-3.5" />
-                      </Button>
-                    </Flex>
+                  <Flex gap="md" items="center">
+                    <Button
+                      size="icon-xs"
+                      rounded="lg"
+                      className="bg-foreground text-background hover:opacity-90 disabled:opacity-50"
+                      onClick={handleSend}
+                      disabled={!message.trim() || isSending || !currentSession}
+                    >
+                      <ArrowUp className="h-3.5 w-3.5" />
+                    </Button>
                   </Flex>
-                </div>
+                </Flex>
               </div>
-            </Flex>
-          </div>
+            </div>
+          </Flex>
+        </div>
 
-          {/* Example Prompts */}
+        {/* Example Prompts - Only show in empty state */}
+        {!hasMessages && (
           <div className="mt-6 flex w-full flex-wrap items-center justify-center gap-2 px-3">
             <Button variant="bordered" size="sm" rounded="full" className="text-xs">
               <HelpCircle className="h-3.5 w-3.5" />
@@ -141,8 +239,10 @@ export const ChatPage = () => {
               Analysis
             </Button>
           </div>
+        )}
 
-          {/* Footer */}
+        {/* Footer */}
+        {!hasMessages && (
           <div className="absolute bottom-4 left-0 right-0 flex items-center justify-center gap-4 text-xs text-muted-foreground">
             <a href="#" className="hover:text-foreground transition-colors opacity-50 hover:opacity-100">Star us on GitHub</a>
             <a href="#" className="hover:text-foreground transition-colors opacity-50 hover:opacity-100">Changelog</a>
@@ -150,7 +250,7 @@ export const ChatPage = () => {
             <a href="#" className="hover:text-foreground transition-colors opacity-50 hover:opacity-100">Terms</a>
             <a href="#" className="hover:text-foreground transition-colors opacity-50 hover:opacity-100">Privacy</a>
           </div>
-        </Flex>
+        )}
       </div>
     </div>
   );

@@ -5,9 +5,9 @@ spring:
   application:
     name: document-service
   datasource:
-    url: jdbc:postgresql://localhost:5432/document_db
-    username: postgres
-    password: postgres
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/document_db}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:postgres}
     driver-class-name: org.postgresql.Driver
   jpa:
     hibernate:
@@ -25,17 +25,22 @@ spring:
 
 # File storage configuration
 storage:
-  type: local # local or azure
+  type: ${STORAGE_TYPE:local}
   local:
     upload-dir: ./uploads
   azure:
     connection-string: ${AZURE_STORAGE_CONNECTION_STRING:}
-    container-name: documents
+    container-name: ${AZURE_STORAGE_CONTAINER:documents}
+
+# Service Bus configuration
+service-bus:
+  connection-string: ${SERVICE_BUS_CONNECTION:}
+  queue-name: rag-ingest-queue
 
 # External service URLs
 services:
   rag-ingest:
-    url: http://localhost:8084
+    url: ${RAG_INGEST_URL:http://localhost:8084}
 
 logging:
   level:

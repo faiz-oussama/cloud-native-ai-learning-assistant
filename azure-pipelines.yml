@@ -1,0 +1,234 @@
+trigger:
+- main  # triggers on commits to main branch
+
+variables:
+  IMAGE_TAG: $(Build.BuildId)
+  RESOURCE_GROUP: MLops_project
+  ACA_ENV: aca-env-aila
+  ACR_NAME: acraila.azurecr.io
+
+stages:
+# =========================
+# Build Stage
+# =========================
+- stage: Build
+  displayName: "Build Docker Images"
+  jobs:
+  
+  # ---- Spring Boot Services ----
+  - job: BuildSpringServices
+    displayName: "Build Spring Boot Services"
+    steps:
+    - task: Maven@3
+      inputs:
+        mavenPomFile: 'backend/user-service/pom.xml'
+        goals: 'clean package'
+    - task: Docker@2
+      displayName: "Build & Push user-service"
+      inputs:
+        containerRegistry: 'acraila'
+        repository: 'user-service'
+        command: 'buildAndPush'
+        Dockerfile: 'backend/user-service/Dockerfile'
+        tags: $(IMAGE_TAG)
+
+    - task: Maven@3
+      inputs:
+        mavenPomFile: 'backend/chat-service/pom.xml'
+        goals: 'clean package'
+    - task: Docker@2
+      displayName: "Build & Push chat-service"
+      inputs:
+        containerRegistry: 'acraila'
+        repository: 'chat-service'
+        command: 'buildAndPush'
+        Dockerfile: 'backend/chat-service/Dockerfile'
+        tags: $(IMAGE_TAG)
+
+    - task: Maven@3
+      inputs:
+        mavenPomFile: 'backend/document-service/pom.xml'
+        goals: 'clean package'
+    - task: Docker@2
+      displayName: "Build & Push document-service"
+      inputs:
+        containerRegistry: 'acraila'
+        repository: 'document-service'
+        command: 'buildAndPush'
+        Dockerfile: 'backend/document-service/Dockerfile'
+        tags: $(IMAGE_TAG)
+
+    - task: Maven@3
+      inputs:
+        mavenPomFile: 'backend/quiz-service/pom.xml'
+        goals: 'clean package'
+    - task: Docker@2
+      displayName: "Build & Push quiz-service"
+      inputs:
+        containerRegistry: 'acraila'
+        repository: 'quiz-service'
+        command: 'buildAndPush'
+        Dockerfile: 'backend/quiz-service/Dockerfile'
+        tags: $(IMAGE_TAG)
+
+  # ---- Python Services ----
+  - job: BuildPythonServices
+    displayName: "Build Python AI Services"
+    steps:
+    - script: |
+        docker build -t $(ACR_NAME)/rag-ingest-service:$(IMAGE_TAG) ./ai-services/rag-ingest-service
+        docker push $(ACR_NAME)/rag-ingest-service:$(IMAGE_TAG)
+      displayName: "Build & Push RAG Ingest Service"
+
+    - script: |
+        docker build -t $(ACR_NAME)/rag-query-service:$(IMAGE_TAG) ./ai-services/rag-query-service
+        docker push $(ACR_NAME)/rag-query-service:$(IMAGE_TAG)
+      displayName: "Build & Push RAG Query Service"
+
+    - script: |
+        docker build -t $(ACR_NAME)/quiz-generation-service:$(IMAGE_TAG) ./ai-services/quiz-generation-service
+        docker push $(ACR_NAME)/quiz-generation-service:$(IMAGE_TAG)
+      displayName: "Build & Push Quiz Generation Service"
+
+  # ---- Frontend ----
+  - job: BuildFrontend
+    displayName: "Build React Frontend"
+    steps:
+    - script: |
+        cd frontend
+        npm ci
+        npm run build
+      displayName: "Build React Vite frontend"
+    - task: Docker@2
+      displayName: "Build & Push frontend image"
+      inputs:
+        containerRegistry: 'acraila'
+        repository: 'frontend'
+        command: 'buildAndPush'
+        Dockerfile: 'frontend/Dockerfile'
+        tags: $(IMAGE_TAG)
+
+# =========================
+# Deploy Stage
+# =========================
+- stage: Deploy
+  displayName: "Deploy to Azure Container Apps"
+  dependsOn: Build
+  jobs:
+  - job: DeployAll
+    displayName: "Deploy all services"
+    steps:
+    - task: AzureCLI@2
+      inputs:
+        azureSubscription: 'Azure for Students'
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          # Deploy backend services with full configuration
+          az containerapp update \
+            --name user-service \
+            --resource-group $(RESOURCE_GROUP) \
+            --image $(ACR_NAME)/user-service:$(IMAGE_TAG) \
+            --environment $(ACA_ENV) \
+            --cpu 0.5 --memory 1.0Gi \
+            --ingress external --target-port 8080 \
+            --environment-variables \
+              SPRING_DATASOURCE_URL="jdbc:postgresql://acraila.postgres.database.azure.com:5432/user_db?sslmode=require" \
+              SPRING_DATASOURCE_USERNAME="adminuser" \
+              SPRING_DATASOURCE_PASSWORD=@Microsoft.KeyVault(SecretUri=https://kv-aila.vault.azure.net/secrets/postgres)
+
+          az containerapp update \
+            --name document-service \
+            --resource-group $(RESOURCE_GROUP) \
+            --image $(ACR_NAME)/document-service:$(IMAGE_TAG) \
+            --environment $(ACA_ENV) \
+            --cpu 0.5 --memory 1.0Gi \
+            --ingress external --target-port 8081 \
+            --environment-variables \
+              SPRING_DATASOURCE_URL="jdbc:postgresql://acraila.postgres.database.azure.com:5432/document_db?sslmode=require" \
+              SPRING_DATASOURCE_USERNAME="adminuser" \
+              SPRING_DATASOURCE_PASSWORD=@Microsoft.KeyVault(SecretUri=https://kv-aila.vault.azure.net/secrets/postgres) \
+              STORAGE_TYPE="azure" \
+              AZURE_STORAGE_CONNECTION_STRING=@Microsoft.KeyVault(SecretUri=https://kv-aila.vault.azure.net/secrets/blobstorage-connection) \
+              AZURE_STORAGE_CONTAINER="documents" \
+              SERVICE_BUS_CONNECTION=@Microsoft.KeyVault(SecretUri=https://kv-aila.vault.azure.net/secrets/service-bus-connection) \
+              RAG_INGEST_URL="http://rag-ingest-service"
+
+          az containerapp update \
+            --name chat-service \
+            --resource-group $(RESOURCE_GROUP) \
+            --image $(ACR_NAME)/chat-service:$(IMAGE_TAG) \
+            --environment $(ACA_ENV) \
+            --cpu 0.5 --memory 1.0Gi \
+            --ingress external --target-port 8082 \
+            --environment-variables \
+              COSMOS_URI=@Microsoft.KeyVault(SecretUri=https://kv-aila.vault.azure.net/secrets/cosmos-uri) \
+              COSMOS_KEY=@Microsoft.KeyVault(SecretUri=https://kv-aila.vault.azure.net/secrets/cosmos-key) \
+              COSMOS_DB_NAME=@Microsoft.KeyVault(SecretUri=https://kv-aila.vault.azure.net/secrets/cosmos-db-name) \
+              DOCUMENT_SERVICE_URL="http://document-service" \
+              RAG_QUERY_URL="http://rag-query-service"
+
+          az containerapp update \
+            --name quiz-service \
+            --resource-group $(RESOURCE_GROUP) \
+            --image $(ACR_NAME)/quiz-service:$(IMAGE_TAG) \
+            --environment $(ACA_ENV) \
+            --cpu 0.5 --memory 1.0Gi \
+            --ingress external --target-port 8083 \
+            --environment-variables \
+              SPRING_DATASOURCE_URL="jdbc:postgresql://acraila.postgres.database.azure.com:5432/quiz_db?sslmode=require" \
+              SPRING_DATASOURCE_USERNAME="adminuser" \
+              SPRING_DATASOURCE_PASSWORD=@Microsoft.KeyVault(SecretUri=https://kv-aila.vault.azure.net/secrets/postgres) \
+              QUIZ_GENERATION_URL="http://quiz-generation-service"
+
+          # Deploy AI services
+          az containerapp update \
+            --name rag-ingest-service \
+            --resource-group $(RESOURCE_GROUP) \
+            --image $(ACR_NAME)/rag-ingest-service:$(IMAGE_TAG) \
+            --environment $(ACA_ENV) \
+            --cpu 0.5 --memory 1.0Gi \
+            --ingress internal --target-port 8084 \
+            --environment-variables \
+              SERVICE_BUS_CONNECTION=@Microsoft.KeyVault(SecretUri=https://kv-aila.vault.azure.net/secrets/service-bus-connection) \
+              AZURE_STORAGE_CONNECTION=@Microsoft.KeyVault(SecretUri=https://kv-aila.vault.azure.net/secrets/blobstorage-connection) \
+              SEARCH_SERVICE_ENDPOINT="https://llmops-search-service.search.windows.net" \
+              SEARCH_SERVICE_KEY=@Microsoft.KeyVault(SecretUri=https://kv-aila.vault.azure.net/secrets/ai-search) \
+              FOUNDRY_ENDPOINT=@Microsoft.KeyVault(SecretUri=https://kv-aila.vault.azure.net/secrets/foundary-endpoint) \
+              FOUNDRY_KEY=@Microsoft.KeyVault(SecretUri=https://kv-aila.vault.azure.net/secrets/foundary-key) \
+              AZURE_AI_SERVICES_KEY=@Microsoft.KeyVault(SecretUri=https://kv-aila.vault.azure.net/secrets/foundary-key)
+
+          az containerapp update \
+            --name rag-query-service \
+            --resource-group $(RESOURCE_GROUP) \
+            --image $(ACR_NAME)/rag-query-service:$(IMAGE_TAG) \
+            --environment $(ACA_ENV) \
+            --cpu 0.5 --memory 1.0Gi \
+            --ingress internal --target-port 8085 \
+            --environment-variables \
+              SEARCH_SERVICE_ENDPOINT="https://llmops-search-service.search.windows.net" \
+              SEARCH_SERVICE_KEY=@Microsoft.KeyVault(SecretUri=https://kv-aila.vault.azure.net/secrets/ai-search) \
+              FOUNDRY_ENDPOINT=@Microsoft.KeyVault(SecretUri=https://kv-aila.vault.azure.net/secrets/foundary-endpoint) \
+              FOUNDRY_KEY=@Microsoft.KeyVault(SecretUri=https://kv-aila.vault.azure.net/secrets/foundary-key)
+
+          az containerapp update \
+            --name quiz-generation-service \
+            --resource-group $(RESOURCE_GROUP) \
+            --image $(ACR_NAME)/quiz-generation-service:$(IMAGE_TAG) \
+            --environment $(ACA_ENV) \
+            --cpu 0.5 --memory 1.0Gi \
+            --ingress internal --target-port 8086 \
+            --environment-variables \
+              FOUNDRY_ENDPOINT=@Microsoft.KeyVault(SecretUri=https://kv-aila.vault.azure.net/secrets/foundary-endpoint) \
+              FOUNDRY_KEY=@Microsoft.KeyVault(SecretUri=https://kv-aila.vault.azure.net/secrets/foundary-key)
+
+          # Deploy frontend
+          az containerapp update \
+            --name frontend \
+            --resource-group $(RESOURCE_GROUP) \
+            --image $(ACR_NAME)/frontend:$(IMAGE_TAG) \
+            --environment $(ACA_ENV) \
+            --cpu 0.25 --memory 0.5Gi \
+            --ingress external --target-port 80 \
+            --environment-variables \
+              VITE_API_BASE_URL="https://chat-service.$(az containerapp show --name chat-service --resource-group $(RESOURCE_GROUP) --query properties.configuration.ingress.fqdn -o tsv)"

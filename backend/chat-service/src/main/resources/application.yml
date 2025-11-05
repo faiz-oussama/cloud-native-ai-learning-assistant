@@ -6,7 +6,9 @@ spring:
     name: chat-service
   data:
     mongodb:
-      uri: mongodb://localhost:27017/chat_db
+      uri: ${COSMOS_URI:mongodb://localhost:27017}/chat_db?ssl=true&retrywrites=false&maxIdleTimeMS=120000
+      username: ${COSMOS_DB_NAME:}
+      password: ${COSMOS_KEY:}
       auto-index-creation: true
   servlet:
     multipart:
@@ -17,9 +19,9 @@ spring:
 # External service URLs
 services:
   document:
-    url: http://localhost:8081
+    url: ${DOCUMENT_SERVICE_URL:http://localhost:8081}
   rag-query:
-    url: http://localhost:8085
+    url: ${RAG_QUERY_URL:http://localhost:8085}
 
 logging:
   level:

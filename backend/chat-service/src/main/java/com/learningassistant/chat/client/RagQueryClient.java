@@ -24,17 +24,19 @@ public class RagQueryClient {
         this.restTemplate = restTemplate;
     }
     
-    public String queryDocument(String documentId, String question, String conversationHistory) {
+    public String queryDocument(String documentId, String question, String userId, String conversationHistory) {
         try {
-            String url = ragQueryServiceUrl + "/api/query";
+            String url = ragQueryServiceUrl + "/query";
             
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
             
             Map<String, Object> requestBody = new HashMap<>();
-            requestBody.put("documentId", documentId);
-            requestBody.put("question", question);
-            requestBody.put("conversationHistory", conversationHistory);
+            requestBody.put("query", question);
+            requestBody.put("user_id", userId);
+            requestBody.put("document_id", documentId);
+            requestBody.put("top_k", 5);
+            requestBody.put("temperature", 0.7);
             
             HttpEntity<Map<String, Object>> requestEntity = new HttpEntity<>(requestBody, headers);
             
@@ -47,13 +49,16 @@ public class RagQueryClient {
             
             if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
                 Map<String, Object> responseBody = response.getBody();
-                return (String) responseBody.get("answer");
+                String answer = (String) responseBody.get("answer");
+                
+                logger.info("RAG query successful for document: {}", documentId);
+                return answer != null ? answer : "I couldn't generate an answer from the document.";
             } else {
                 logger.error("Failed to query RAG service: {}", response.getStatusCode());
                 return "I apologize, but I'm having trouble processing your question at the moment. Please try again.";
             }
         } catch (Exception e) {
-            logger.error("Error querying RAG service: {}", e.getMessage());
+            logger.error("Error querying RAG service: {}", e.getMessage(), e);
             // Fallback response when RAG service is unavailable
             return "I apologize, but I'm currently unable to answer questions about the document. The AI service may be temporarily unavailable. Please try again later.";
         }

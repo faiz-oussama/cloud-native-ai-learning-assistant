@@ -87,4 +87,11 @@ public class LocalStorageService implements StorageService {
             logger.error("Failed to delete file: {}", fileName, e);
         }
     }
+    
+    @Override
+    public String getFileUrl(String fileName, String userId) {
+        // For local storage, return the file path
+        // In Azure deployment, this would be a blob URL
+        return rootLocation.resolve(fileName).toString();
+    }
 }

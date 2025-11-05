@@ -1,13 +1,14 @@
 server:
-  port: 8080
+  port: 8083
 
 spring:
   application:
-    name: user-service
+    name: quiz-service
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/user_db}
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/quiz_db}
     username: ${SPRING_DATASOURCE_USERNAME:postgres}
     password: ${SPRING_DATASOURCE_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
   jpa:
     hibernate:
       ddl-auto: update
@@ -16,6 +17,11 @@ spring:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
         format_sql: true
+
+# External service URLs
+services:
+  quiz-generation:
+    url: ${QUIZ_GENERATION_URL:http://localhost:8086}
 
 logging:
   level:

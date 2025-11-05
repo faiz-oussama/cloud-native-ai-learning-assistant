@@ -155,6 +155,8 @@ celerybeat-schedule
 
 # Environments
 .env
+.env.local
+.env.production
 .venv
 env/
 venv/
@@ -179,3 +181,23 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Frontend (Node.js)
+node_modules/
+.npm
+.eslintcache
+.node_repl_history
+*.tsbuildinfo
+.next
+out/
+.nuxt
+.cache
+.parcel-cache
+.vite
+dist/
+.vercel
+.env*.local
+
+# Uploads
+uploads/
+*.tmp

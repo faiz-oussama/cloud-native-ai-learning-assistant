@@ -1,11 +1,35 @@
 'use client';
-import { Sidebar } from './components/Sidebar';
-import { ChatPage } from './app/chat/page';
+import { Sidebar } from '@/components/Sidebar';
+import { ChatPage } from '@/app/chat/page';
+import { SignInPage } from '@/app/signin/page';
+import { SignUpPage } from '@/app/signup/page';
 import { useState } from 'react';
+import { useAuthContext } from '@/contexts/AuthContext';
 
 function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [showSignUp, setShowSignUp] = useState(false);
+  const { isAuthenticated, isLoading } = useAuthContext();
 
+  // Show loading state while checking authentication
+  if (isLoading) {
+    return (
+      <div className="bg-tertiary flex h-[100dvh] w-full items-center justify-center">
+        <div className="text-muted-foreground text-sm">Loading...</div>
+      </div>
+    );
+  }
+
+  // Show auth pages if not authenticated
+  if (!isAuthenticated) {
+    return showSignUp ? (
+      <SignUpPage onSignInClick={() => setShowSignUp(false)} />
+    ) : (
+      <SignInPage onSignUpClick={() => setShowSignUp(true)} />
+    );
+  }
+
+  // Show main app if authenticated
   return (
     <div className="bg-tertiary flex h-[100dvh] w-full flex-row overflow-hidden">
       <div className="hidden lg:flex">

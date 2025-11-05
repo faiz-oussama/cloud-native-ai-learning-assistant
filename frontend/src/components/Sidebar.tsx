@@ -1,12 +1,47 @@
 'use client';
 import { Flex } from './ui/flex';
 import { Button } from './ui/button';
-import { Plus, Search, Settings, ArrowLeft, ArrowRight } from 'lucide-react';
+import { Plus, Search, Settings, ArrowLeft, ArrowRight, FileText, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useAuthContext } from '@/contexts/AuthContext';
+import { useChat } from '@/hooks/useChat';
+import { useDocuments } from '@/hooks/useDocuments';
+import { AuthModal } from './AuthModal';
 
 export const Sidebar = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  
+  const { user, isAuthenticated, logout } = useAuthContext();
+  const { sessions, loadSessions, createSession, loadSession, currentSession } = useChat(user?.id || '');
+  const { documents, loadDocuments } = useDocuments(user?.id || '');
+
+  useEffect(() => {
+    if (user?.id) {
+      loadSessions();
+      loadDocuments();
+    }
+  }, [user?.id, loadSessions, loadDocuments]);
+
+  const handleNewThread = async () => {
+    if (!isAuthenticated) {
+      setShowAuthModal(true);
+      return;
+    }
+    
+    if (documents.length === 0) {
+      alert('Please upload a document first');
+      return;
+    }
+    
+    // Create session with first document
+    await createSession(documents[0].id);
+  };
+
+  const handleSessionClick = (sessionId: string) => {
+    loadSession(sessionId);
+  };
 
   return (
     <div
@@ -55,6 +90,7 @@ export const Sidebar = () => {
             variant="bordered"
             rounded="lg"
             className={cn(isSidebarOpen && 'relative w-full', 'justify-center')}
+            onClick={handleNewThread}
           >
             <Plus className="h-4 w-4" />
             {isSidebarOpen && 'New Thread'}
@@ -86,23 +122,70 @@ export const Sidebar = () => {
           direction="col"
           gap="xs"
           className={cn(
-            'border-hard mt-3 w-full justify-center border-t border-dashed px-3 py-2',
+            'border-hard mt-3 w-full justify-center border-t border-dashed px-3 py-2 flex-1 overflow-y-auto',
             !isSidebarOpen && 'items-center justify-center px-0'
           )}
         >
-          {/* Pinned section */}
+          {/* Sessions List */}
           <div className={cn('w-full', isSidebarOpen ? 'flex' : 'hidden')}>
             <Flex direction="col" items="start" className="w-full gap-0.5">
               <div className="text-muted-foreground/70 flex flex-row items-center gap-1 px-2 py-1 text-xs font-medium opacity-70">
-                Pinned
+                Recent Chats
               </div>
-              <div className="border-hard flex w-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed p-2">
-                <p className="text-muted-foreground text-xs opacity-50">
-                  No pinned threads
-                </p>
-              </div>
+              {sessions.length === 0 ? (
+                <div className="border-hard flex w-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed p-2">
+                  <p className="text-muted-foreground text-xs opacity-50">
+                    No chat sessions
+                  </p>
+                </div>
+              ) : (
+                <div className="w-full space-y-1">
+                  {sessions.map((session) => (
+                    <Button
+                      key={session.id}
+                      variant={currentSession?.id === session.id ? 'secondary' : 'ghost'}
+                      size="sm"
+                      className="w-full justify-start text-xs truncate"
+                      onClick={() => handleSessionClick(session.id)}
+                    >
+                      <FileText className="h-3.5 w-3.5 mr-1.5" />
+                      {session.title}
+                    </Button>
+                  ))}
+                </div>
+              )}
             </Flex>
           </div>
+
+          {/* Documents List */}
+          {isSidebarOpen && documents.length > 0 && (
+            <div className="w-full mt-4">
+              <Flex direction="col" items="start" className="w-full gap-0.5">
+                <div className="text-muted-foreground/70 flex flex-row items-center gap-1 px-2 py-1 text-xs font-medium opacity-70">
+                  Documents ({documents.length})
+                </div>
+                <div className="w-full space-y-1">
+                  {documents.slice(0, 3).map((doc) => (
+                    <div
+                      key={doc.id}
+                      className="text-muted-foreground text-xs px-2 py-1 truncate flex items-center gap-1"
+                    >
+                      <FileText className="h-3 w-3" />
+                      <span className="flex-1 truncate">{doc.fileName}</span>
+                      <span className={cn(
+                        'text-[10px] px-1 rounded',
+                        doc.processingStatus === 'COMPLETED' && 'bg-green-500/20 text-green-500',
+                        doc.processingStatus === 'PROCESSING' && 'bg-yellow-500/20 text-yellow-500',
+                        doc.processingStatus === 'FAILED' && 'bg-red-500/20 text-red-500'
+                      )}>
+                        {doc.processingStatus}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </Flex>
+            </div>
+          )}
         </Flex>
 
         <Flex
@@ -133,13 +216,21 @@ export const Sidebar = () => {
                 <Settings className="h-3.5 w-3.5" />
                 Settings
               </Button>
-              <Button size="sm" rounded="lg">
-                Log in / Sign up
-              </Button>
+              {isAuthenticated ? (
+                <Button size="sm" rounded="lg" onClick={logout}>
+                  Logout ({user?.username})
+                </Button>
+              ) : (
+                <Button size="sm" rounded="lg" onClick={() => setShowAuthModal(true)}>
+                  Log in / Sign up
+                </Button>
+              )}
             </div>
           )}
         </Flex>
       </Flex>
+      
+      <AuthModal isOpen={showAuthModal} onClose={() => setShowAuthModal(false)} />
     </div>
   );
 };

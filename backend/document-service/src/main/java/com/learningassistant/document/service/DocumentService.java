@@ -26,13 +26,16 @@ public class DocumentService {
     private final DocumentRepository documentRepository;
     private final StorageService storageService;
     private final RagIngestClient ragIngestClient;
+    private final ServiceBusService serviceBusService;
     
     public DocumentService(DocumentRepository documentRepository,
                           StorageService storageService,
-                          RagIngestClient ragIngestClient) {
+                          RagIngestClient ragIngestClient,
+                          ServiceBusService serviceBusService) {
         this.documentRepository = documentRepository;
         this.storageService = storageService;
         this.ragIngestClient = ragIngestClient;
+        this.serviceBusService = serviceBusService;
         
         // Initialize storage
         storageService.init();
@@ -65,26 +68,28 @@ public class DocumentService {
             
             logger.info("Document saved with ID: {}", savedDocument.getId());
             
-            // Asynchronously ingest to RAG service
+            // Send message to Service Bus to trigger RAG ingestion
             try {
+                // Get the blob URL from storage service
+                String blobUrl = storageService.getFileUrl(filePath, userId);
+                
+                // Send message to Service Bus
+                serviceBusService.sendDocumentIngestMessage(
+                    savedDocument.getId(),
+                    userId,
+                    blobUrl,
+                    fileName,
+                    fileType
+                );
+                
+                // Update status to PROCESSING (will be updated by indexer)
                 document.setProcessingStatus(ProcessingStatus.PROCESSING);
                 documentRepository.save(document);
                 
-                Map<String, Object> ragResponse = ragIngestClient.ingestDocument(savedDocument.getId(), file);
+                logger.info("Document {} queued for RAG ingestion via Service Bus", savedDocument.getId());
                 
-                if (ragResponse != null && ragResponse.containsKey("ragDocumentId")) {
-                    document.setRagDocumentId((String) ragResponse.get("ragDocumentId"));
-                    document.setProcessingStatus(ProcessingStatus.COMPLETED);
-                    document.setProcessedAt(LocalDateTime.now());
-                    logger.info("Document {} ingested successfully", savedDocument.getId());
-                } else {
-                    document.setProcessingStatus(ProcessingStatus.FAILED);
-                    logger.warn("Failed to ingest document {} to RAG service", savedDocument.getId());
-                }
-                
-                documentRepository.save(document);
             } catch (Exception e) {
-                logger.error("Error during RAG ingestion: {}", e.getMessage());
+                logger.error("Error sending document to Service Bus: {}", e.getMessage(), e);
                 document.setProcessingStatus(ProcessingStatus.FAILED);
                 documentRepository.save(document);
             }

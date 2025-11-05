@@ -78,6 +78,7 @@ public class ChatService {
         String answer = ragQueryClient.queryDocument(
             session.getDocumentId(),
             request.getMessage(),
+            userId,
             conversationHistory
         );
         

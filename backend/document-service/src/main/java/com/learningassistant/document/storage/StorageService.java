@@ -22,6 +22,11 @@ public interface StorageService {
     void deleteFile(String fileName);
     
     /**
+     * Get the URL/path for accessing a file
+     */
+    String getFileUrl(String fileName, String userId);
+    
+    /**
      * Initialize storage
      */
     void init();
