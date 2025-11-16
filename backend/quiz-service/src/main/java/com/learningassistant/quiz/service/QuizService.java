@@ -1,14 +1,17 @@
 package com.learningassistant.quiz.service;
 
 import com.learningassistant.quiz.client.QuizGenerationClient;
-import com.learningassistant.quiz.dto.CreateQuizRequest;
-import com.learningassistant.quiz.dto.GeneratedQuestion;
-import com.learningassistant.quiz.dto.QuizGenerationRequest;
+import com.learningassistant.quiz.dto.*;
 import com.learningassistant.quiz.model.Question;
 import com.learningassistant.quiz.model.Quiz;
+import com.learningassistant.quiz.model.QuizSubmission;
 import com.learningassistant.quiz.repository.QuizRepository;
+import com.learningassistant.quiz.repository.QuizSubmissionRepository;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -16,10 +19,14 @@ import java.util.stream.Collectors;
 public class QuizService {
 
     private final QuizRepository quizRepository;
+    private final QuizSubmissionRepository submissionRepository;
     private final QuizGenerationClient quizGenerationClient;
 
-    public QuizService(QuizRepository quizRepository, QuizGenerationClient quizGenerationClient) {
+    public QuizService(QuizRepository quizRepository,
+                       QuizSubmissionRepository submissionRepository,
+                       QuizGenerationClient quizGenerationClient) {
         this.quizRepository = quizRepository;
+        this.submissionRepository = submissionRepository;
         this.quizGenerationClient = quizGenerationClient;
     }
 
@@ -71,5 +78,56 @@ public class QuizService {
         quiz.setQuestions(List.of(mathQuestion, capitalQuestion));
 
         return quiz;
+    }
+
+    public QuizResult gradeQuiz(Long quizId, QuizSubmissionRequest submissionRequest) {
+        Quiz quiz = quizRepository.findById(quizId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Quiz not found"));
+
+        int correctAnswers = 0;
+        List<QuizResult.Feedback> feedbackList = new ArrayList<>();
+
+        for (Question question : quiz.getQuestions()) {
+            String userAnswer = submissionRequest.answers().get(question.getId());
+            String correctAnswer = question.getCorrectAnswer();
+            boolean isCorrect = correctAnswer.equals(userAnswer);
+
+            if (isCorrect) {
+                correctAnswers++;
+            }
+
+            String explanation = isCorrect
+                    ? "Correct!"
+                    : "This is incorrect. The correct answer is '" + correctAnswer + "'.";
+
+            feedbackList.add(new QuizResult.Feedback(
+                    question.getId(),
+                    userAnswer,
+                    correctAnswer,
+                    isCorrect,
+                    explanation
+            ));
+        }
+
+        double score = quiz.getQuestions().isEmpty()
+                ? 0
+                : (double) correctAnswers / quiz.getQuestions().size() * 100.0;
+
+        QuizSubmission submission = new QuizSubmission();
+        submission.setQuiz(quiz);
+        submission.setUserId(submissionRequest.userId());
+        submission.setAnswers(submissionRequest.answers());
+        submission.setScore((int) score);
+
+        QuizSubmission savedSubmission = submissionRepository.save(submission);
+
+        return new QuizResult(
+                quizId,
+                savedSubmission.getId(),
+                correctAnswers,
+                quiz.getQuestions().size(),
+                score,
+                feedbackList
+        );
     }
 }
