@@ -1,24 +1,35 @@
 server:
-  port: 8083
+  port: 8083 # Your port
 
 spring:
   application:
     name: quiz-service
+
+  # --- H2 Database Configuration (FOR DEVELOPMENT) ---
+  # We are completely replacing the postgres datasource with H2
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/quiz_db}
-    username: ${SPRING_DATASOURCE_USERNAME:postgres}
-    password: ${SPRING_DATASOURCE_PASSWORD:postgres}
-    driver-class-name: org.postgresql.Driver
+    driver-class-name: org.h2.Driver
+    # "mem" means in-memory, "quizdb" is the database name
+    url: jdbc:h2:mem:quizdb
+    username: sa
+    password:
+
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+
   jpa:
+    # We MUST change the dialect to H2
+    database-platform: org.hibernate.dialect.H2Dialect
     hibernate:
-      ddl-auto: update
+      ddl-auto: update # Automatically create tables
     show-sql: true
     properties:
       hibernate:
-        dialect: org.hibernate.dialect.PostgreSQLDialect
         format_sql: true
 
-# External service URLs
+# --- Keep your other configurations ---
 services:
   quiz-generation:
     url: ${QUIZ_GENERATION_URL:http://localhost:8086}
