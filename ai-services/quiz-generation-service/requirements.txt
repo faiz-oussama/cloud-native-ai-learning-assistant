@@ -1,5 +1,5 @@
 fastapi
-uvicorn
-azure-identity
+uvicorn[standard]
 openai
+python-dotenv
 pydantic
