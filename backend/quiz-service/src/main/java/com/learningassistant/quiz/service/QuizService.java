@@ -1,44 +1,53 @@
 package com.learningassistant.quiz.service;
 
+import com.learningassistant.quiz.client.QuizGenerationClient;
 import com.learningassistant.quiz.dto.CreateQuizRequest;
+import com.learningassistant.quiz.dto.GeneratedQuestion;
+import com.learningassistant.quiz.dto.QuizGenerationRequest;
 import com.learningassistant.quiz.model.Question;
 import com.learningassistant.quiz.model.Quiz;
 import com.learningassistant.quiz.repository.QuizRepository;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Service
 public class QuizService {
 
     private final QuizRepository quizRepository;
+    private final QuizGenerationClient quizGenerationClient;
 
-    public QuizService(QuizRepository quizRepository) {
+    public QuizService(QuizRepository quizRepository, QuizGenerationClient quizGenerationClient) {
         this.quizRepository = quizRepository;
+        this.quizGenerationClient = quizGenerationClient;
     }
 
     public Quiz createAndSaveQuiz(CreateQuizRequest request) {
-        List<Question> generatedQuestions = generateMockQuestions(request.difficulty());
+        QuizGenerationRequest aiRequest = new QuizGenerationRequest(
+                request.documentText(),
+                5,
+                request.difficulty()
+        );
+
+        List<GeneratedQuestion> generatedQuestions = quizGenerationClient.generateQuiz(aiRequest);
+        List<Question> questionEntities = generatedQuestions.stream()
+                .map(this::mapDtoToEntity)
+                .collect(Collectors.toList());
 
         Quiz newQuiz = new Quiz();
         newQuiz.setTitle(request.title());
-        newQuiz.setQuestions(generatedQuestions);
+        newQuiz.setQuestions(questionEntities);
 
         return quizRepository.save(newQuiz);
     }
 
-    private List<Question> generateMockQuestions(String difficulty) {
-        Question q1 = new Question();
-        q1.setQuestionText("Mock Question (Difficulty: " + difficulty + ") - Q1");
-        q1.setOptions(List.of("A", "B", "C", "D"));
-        q1.setCorrectAnswer("A");
-
-        Question q2 = new Question();
-        q2.setQuestionText("Mock Question - Q2");
-        q2.setOptions(List.of("A", "B", "C", "D"));
-        q2.setCorrectAnswer("B");
-
-        return List.of(q1, q2);
+    private Question mapDtoToEntity(GeneratedQuestion dto) {
+        Question entity = new Question();
+        entity.setQuestionText(dto.question());
+        entity.setOptions(dto.options());
+        entity.setCorrectAnswer(dto.correct_answer());
+        return entity;
     }
 
     /**
