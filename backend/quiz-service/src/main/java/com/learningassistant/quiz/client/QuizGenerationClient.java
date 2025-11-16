@@ -1,32 +1,33 @@
 package com.learningassistant.quiz.client;
 
 import com.learningassistant.quiz.dto.*;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestTemplate;
 
+import java.util.Arrays;
 import java.util.List;
 
 @Component
 public class QuizGenerationClient {
 
+    private final RestTemplate restTemplate;
+    private final String quizGenerationServiceUrl;
+
+    public QuizGenerationClient(RestTemplate restTemplate,
+                                @Value("${services.quiz-generation.url}") String quizGenerationServiceUrl) {
+        this.restTemplate = restTemplate;
+        this.quizGenerationServiceUrl = quizGenerationServiceUrl;
+    }
+
     public List<GeneratedQuestion> generateQuiz(QuizGenerationRequest request) {
-        GeneratedQuestion q1 = new GeneratedQuestion(
-                "Mock Question from Client (Difficulty: " + request.difficulty() + ") - Q1",
-                List.of("Client-A", "Client-B", "Client-C", "Client-D"),
-                "Client-A"
-        );
-
-        GeneratedQuestion q2 = new GeneratedQuestion(
-                "Mock Question from Client - Q2",
-                List.of("Client-A", "Client-B", "Client-C", "Client-D"),
-                "Client-B"
-        );
-
-        return List.of(q1, q2);
+        String url = quizGenerationServiceUrl + "/generate-quiz";
+        GeneratedQuestion[] response = restTemplate.postForObject(url, request, GeneratedQuestion[].class);
+        return response == null ? List.of() : Arrays.asList(response);
     }
 
     public ExplanationResponse getExplanation(ExplanationRequest request) {
-        String explanation = "You answered '" + request.wrongAnswer() +
-                "', but that is incorrect. Based on the text, a better answer is related to... [mocked AI explanation]";
-        return new ExplanationResponse(explanation);
+        String url = quizGenerationServiceUrl + "/get-explanation";
+        return restTemplate.postForObject(url, request, ExplanationResponse.class);
     }
 }

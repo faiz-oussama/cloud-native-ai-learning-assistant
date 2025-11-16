@@ -31,10 +31,14 @@ public class QuizService {
     }
 
     public Quiz createAndSaveQuiz(CreateQuizRequest request) {
+        // Get the user's past quizzes and calculate adaptive difficulty
+        List<QuizSubmission> history = submissionRepository.findByUserId(request.userId());
+        String difficulty = determineDifficulty(history);
+
         QuizGenerationRequest aiRequest = new QuizGenerationRequest(
                 request.documentText(),
                 5,
-                request.difficulty()
+                difficulty
         );
 
         List<GeneratedQuestion> generatedQuestions = quizGenerationClient.generateQuiz(aiRequest);
@@ -48,6 +52,26 @@ public class QuizService {
         newQuiz.setDocumentContext(request.documentText());
 
         return quizRepository.save(newQuiz);
+    }
+
+    private String determineDifficulty(List<QuizSubmission> history) {
+        if (history.isEmpty()) {
+            return "easy";
+        }
+
+        double averageScore = history.stream()
+                .skip(Math.max(0, history.size() - 3))
+                .mapToDouble(QuizSubmission::getScore)
+                .average()
+                .orElse(0.0);
+
+        if (averageScore < 50) {
+            return "easy";
+        } else if (averageScore < 80) {
+            return "medium";
+        } else {
+            return "hard";
+        }
     }
 
     private Question mapDtoToEntity(GeneratedQuestion dto) {

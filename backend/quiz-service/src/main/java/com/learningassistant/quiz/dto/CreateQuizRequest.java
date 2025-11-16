@@ -6,7 +6,7 @@ package com.learningassistant.quiz.dto;
 public record CreateQuizRequest(
         String title,
         String documentText,
-        String difficulty
+        Long userId
 ) {
 }
 
