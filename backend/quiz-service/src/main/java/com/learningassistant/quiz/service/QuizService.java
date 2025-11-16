@@ -130,4 +130,13 @@ public class QuizService {
                 feedbackList
         );
     }
+
+    public Quiz getQuizById(Long quizId) {
+        return quizRepository.findById(quizId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Quiz not found"));
+    }
+
+    public List<QuizSubmission> getSubmissionsForUser(Long userId) {
+        return submissionRepository.findByUserId(userId);
+    }
 }
