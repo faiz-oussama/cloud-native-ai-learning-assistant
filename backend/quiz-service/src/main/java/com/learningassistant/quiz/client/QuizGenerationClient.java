@@ -1,7 +1,6 @@
 package com.learningassistant.quiz.client;
 
-import com.learningassistant.quiz.dto.GeneratedQuestion;
-import com.learningassistant.quiz.dto.QuizGenerationRequest;
+import com.learningassistant.quiz.dto.*;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -24,5 +23,10 @@ public class QuizGenerationClient {
 
         return List.of(q1, q2);
     }
-}
 
+    public ExplanationResponse getExplanation(ExplanationRequest request) {
+        String explanation = "You answered '" + request.wrongAnswer() +
+                "', but that is incorrect. Based on the text, a better answer is related to... [mocked AI explanation]";
+        return new ExplanationResponse(explanation);
+    }
+}

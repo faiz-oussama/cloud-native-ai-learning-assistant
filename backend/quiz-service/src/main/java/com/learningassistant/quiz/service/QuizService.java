@@ -45,6 +45,7 @@ public class QuizService {
         Quiz newQuiz = new Quiz();
         newQuiz.setTitle(request.title());
         newQuiz.setQuestions(questionEntities);
+        newQuiz.setDocumentContext(request.documentText());
 
         return quizRepository.save(newQuiz);
     }
@@ -86,19 +87,26 @@ public class QuizService {
 
         int correctAnswers = 0;
         List<QuizResult.Feedback> feedbackList = new ArrayList<>();
+        String documentContext = quiz.getDocumentContext();
 
         for (Question question : quiz.getQuestions()) {
             String userAnswer = submissionRequest.answers().get(question.getId());
             String correctAnswer = question.getCorrectAnswer();
             boolean isCorrect = correctAnswer.equals(userAnswer);
+            String explanation;
 
             if (isCorrect) {
                 correctAnswers++;
+                explanation = "Correct!";
+            } else {
+                ExplanationRequest exRequest = new ExplanationRequest(
+                        documentContext,
+                        question.getQuestionText(),
+                        userAnswer
+                );
+                ExplanationResponse exResponse = quizGenerationClient.getExplanation(exRequest);
+                explanation = exResponse.explanation();
             }
-
-            String explanation = isCorrect
-                    ? "Correct!"
-                    : "This is incorrect. The correct answer is '" + correctAnswer + "'.";
 
             feedbackList.add(new QuizResult.Feedback(
                     question.getId(),

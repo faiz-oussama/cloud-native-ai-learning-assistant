@@ -1,11 +1,13 @@
 package com.learningassistant.quiz.model;
 
 import jakarta.persistence.CascadeType;
+import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Lob;
 import jakarta.persistence.OneToMany;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -28,9 +30,9 @@ public class Quiz {
     @OneToMany(cascade = CascadeType.ALL, fetch = FetchType.EAGER)
     private List<Question> questions;
 
-    // --- Constructors, Getters, and Setters ---
+    @Lob
+    @Column(columnDefinition = "TEXT")
+    private String documentContext;
 
     public Quiz() {} // Default constructor for JPA
-
-
 }
