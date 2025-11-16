@@ -1,10 +1,10 @@
 package com.learningassistant.quiz.controller;
 
+import com.learningassistant.quiz.dto.CreateQuizRequest;
 import com.learningassistant.quiz.model.Quiz;
 import com.learningassistant.quiz.service.QuizService;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api/quizzes")
@@ -16,9 +16,14 @@ public class QuizController {
         this.quizService = quizService;
     }
 
+    @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
+    public Quiz createQuiz(@RequestBody CreateQuizRequest request) {
+        return quizService.createAndSaveQuiz(request);
+    }
+
     @GetMapping("/test")
     public Quiz getTestQuiz() {
         return quizService.createTestQuiz();
     }
 }
-

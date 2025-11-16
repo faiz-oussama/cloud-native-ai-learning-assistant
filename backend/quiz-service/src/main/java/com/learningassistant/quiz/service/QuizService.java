@@ -1,13 +1,45 @@
 package com.learningassistant.quiz.service;
 
+import com.learningassistant.quiz.dto.CreateQuizRequest;
 import com.learningassistant.quiz.model.Question;
 import com.learningassistant.quiz.model.Quiz;
+import com.learningassistant.quiz.repository.QuizRepository;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
 
 @Service
 public class QuizService {
+
+    private final QuizRepository quizRepository;
+
+    public QuizService(QuizRepository quizRepository) {
+        this.quizRepository = quizRepository;
+    }
+
+    public Quiz createAndSaveQuiz(CreateQuizRequest request) {
+        List<Question> generatedQuestions = generateMockQuestions(request.difficulty());
+
+        Quiz newQuiz = new Quiz();
+        newQuiz.setTitle(request.title());
+        newQuiz.setQuestions(generatedQuestions);
+
+        return quizRepository.save(newQuiz);
+    }
+
+    private List<Question> generateMockQuestions(String difficulty) {
+        Question q1 = new Question();
+        q1.setQuestionText("Mock Question (Difficulty: " + difficulty + ") - Q1");
+        q1.setOptions(List.of("A", "B", "C", "D"));
+        q1.setCorrectAnswer("A");
+
+        Question q2 = new Question();
+        q2.setQuestionText("Mock Question - Q2");
+        q2.setOptions(List.of("A", "B", "C", "D"));
+        q2.setCorrectAnswer("B");
+
+        return List.of(q1, q2);
+    }
 
     /**
      * Temporary mock logic that returns a hard-coded quiz.
@@ -32,4 +64,3 @@ public class QuizService {
         return quiz;
     }
 }
-
