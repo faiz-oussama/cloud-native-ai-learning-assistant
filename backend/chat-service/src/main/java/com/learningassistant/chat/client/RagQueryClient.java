@@ -8,6 +8,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @Component
@@ -25,6 +26,10 @@ public class RagQueryClient {
     }
     
     public String queryDocument(String documentId, String question, String userId, String conversationHistory) {
+        return queryDocuments(List.of(documentId), question, userId, conversationHistory);
+    }
+    
+    public String queryDocuments(List<String> documentIds, String question, String userId, String conversationHistory) {
         try {
             String url = ragQueryServiceUrl + "/query";
             
@@ -34,7 +39,13 @@ public class RagQueryClient {
             Map<String, Object> requestBody = new HashMap<>();
             requestBody.put("query", question);
             requestBody.put("user_id", userId);
-            requestBody.put("document_id", documentId);
+            
+            // For now, we'll use the first document ID for querying
+            // In a more advanced implementation, we could query multiple documents
+            if (documentIds != null && !documentIds.isEmpty()) {
+                requestBody.put("document_id", documentIds.get(0));
+            }
+            
             requestBody.put("top_k", 5);
             requestBody.put("temperature", 0.7);
             
@@ -51,7 +62,7 @@ public class RagQueryClient {
                 Map<String, Object> responseBody = response.getBody();
                 String answer = (String) responseBody.get("answer");
                 
-                logger.info("RAG query successful for document: {}", documentId);
+                logger.info("RAG query successful for documents: {}", documentIds);
                 return answer != null ? answer : "I couldn't generate an answer from the document.";
             } else {
                 logger.error("Failed to query RAG service: {}", response.getStatusCode());

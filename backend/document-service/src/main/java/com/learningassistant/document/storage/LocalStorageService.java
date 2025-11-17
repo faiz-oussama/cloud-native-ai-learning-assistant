@@ -94,4 +94,9 @@ public class LocalStorageService implements StorageService {
         // In Azure deployment, this would be a blob URL
         return rootLocation.resolve(fileName).toString();
     }
+    
+    @Override
+    public String getStorageType() {
+        return "local";
+    }
 }

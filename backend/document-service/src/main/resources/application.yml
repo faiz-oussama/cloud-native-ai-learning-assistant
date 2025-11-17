@@ -17,6 +17,10 @@ spring:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
         format_sql: true
+        # Ensure we're using the correct schema
+        default_schema: public
+        # Set transaction isolation level
+        connection.isolation: 2
   servlet:
     multipart:
       enabled: true
@@ -25,7 +29,7 @@ spring:
 
 # File storage configuration
 storage:
-  type: ${STORAGE_TYPE:local}
+  type: ${STORAGE_TYPE:azure}
   local:
     upload-dir: ./uploads
   azure:

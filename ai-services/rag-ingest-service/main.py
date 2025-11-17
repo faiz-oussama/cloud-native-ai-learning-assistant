@@ -1,304 +1,413 @@
 import os
 import json
+import httpx
+import requests
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from azure.core.credentials import AzureKeyCredential
 from azure.search.documents import SearchClient
-from azure.search.documents.indexes import SearchIndexClient, SearchIndexerClient
+from azure.search.documents.indexes import SearchIndexClient
 from azure.search.documents.indexes.models import (
     SearchIndex,
     SimpleField,
     SearchableField,
+    SearchField,
     SearchFieldDataType,
     VectorSearch,
     VectorSearchProfile,
     HnswAlgorithmConfiguration,
     AzureOpenAIVectorizer,
-    AzureOpenAIVectorizerParameters,
-    SearchIndexerDataSourceConnection,
-    SearchIndexerDataContainer,
-    SearchIndexer,
-    SearchIndexerSkillset,
-    SplitSkill,
-    AzureOpenAIEmbeddingSkill,
-    EntityRecognitionSkill,
-    InputFieldMappingEntry,
-    OutputFieldMappingEntry,
-    SearchIndexerIndexProjection,
-    SearchIndexerIndexProjectionSelector,
-    SearchIndexerIndexProjectionsParameters,
-    IndexProjectionMode,
-    CognitiveServicesAccountKey,
-    FieldMapping
+    AzureOpenAIVectorizerParameters
 )
-import uvicorn
+import asyncio
 import logging
 from typing import Optional
+from contextlib import asynccontextmanager
+from docling.document_converter import DocumentConverter
+from docling.chunking import HierarchicalChunker
+from openai import AzureOpenAI
+from rich.console import Console
+import uvicorn
+from dotenv import load_dotenv
+import uuid
+
+# Import EasyOCR
+import easyocr
+
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+console = Console()
 
-app = FastAPI(title="RAG Ingest Service", version="1.0.0")
+# Initialize EasyOCR reader once at startup
+ocr_reader = None
 
-# Environment variables
-SERVICE_BUS_CONNECTION = os.getenv("SERVICE_BUS_CONNECTION")
-AZURE_STORAGE_CONNECTION = os.getenv("AZURE_STORAGE_CONNECTION")
+# Cache for indexer status
+indexer_status_cache = {
+    "data": None,
+    "timestamp": 0,
+    "ttl": 30  # Cache for 30 seconds
+}
+
+# Environment variables (must be loaded before app initialization)
 SEARCH_SERVICE_ENDPOINT = os.getenv("SEARCH_SERVICE_ENDPOINT")
 SEARCH_SERVICE_KEY = os.getenv("SEARCH_SERVICE_KEY")
 FOUNDRY_ENDPOINT = os.getenv("FOUNDRY_ENDPOINT")
 FOUNDRY_KEY = os.getenv("FOUNDRY_KEY")
-AZURE_AI_SERVICES_KEY = os.getenv("AZURE_AI_SERVICES_KEY", FOUNDRY_KEY)  # For entity recognition
-INDEX_NAME = "documents-index"
-DATA_SOURCE_NAME = "documents-datasource"
-SKILLSET_NAME = "documents-skillset"
-INDEXER_NAME = "documents-indexer"
+AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-10-21")
+AZURE_OPENAI_CHAT_MODEL = os.getenv("AZURE_OPENAI_CHAT_MODEL", "gpt-4o")
+AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT = os.getenv("AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT", "text-embedding-3-small")
+AZURE_OPENAI_EMBEDDINGS = os.getenv("AZURE_OPENAI_EMBEDDINGS", "text-embedding-3-small")
+AZURE_SEARCH_INDEX_NAME = os.getenv("AZURE_SEARCH_INDEX_NAME", "docling-rag-sample")
+DOCUMENT_SERVICE_URL = os.getenv("DOCUMENT_SERVICE_URL", "https://document-service.niceplant-c464d163.swedencentral.azurecontainerapps.io")
+
+# Vector dimensions for embedding model
+VECTOR_DIM = 1536  # text-embedding-3-small dimension
 
 # Initialize Azure clients
 def get_search_index_client():
     credential = AzureKeyCredential(SEARCH_SERVICE_KEY)
     return SearchIndexClient(endpoint=SEARCH_SERVICE_ENDPOINT, credential=credential)
 
-def get_search_indexer_client():
-    credential = AzureKeyCredential(SEARCH_SERVICE_KEY)
-    return SearchIndexerClient(endpoint=SEARCH_SERVICE_ENDPOINT, credential=credential)
-
 def get_search_client():
     credential = AzureKeyCredential(SEARCH_SERVICE_KEY)
-    return SearchClient(endpoint=SEARCH_SERVICE_ENDPOINT, index_name=INDEX_NAME, credential=credential)
+    return SearchClient(endpoint=SEARCH_SERVICE_ENDPOINT, index_name=AZURE_SEARCH_INDEX_NAME, credential=credential)
+
+def get_openai_client():
+    return AzureOpenAI(
+        api_version=AZURE_OPENAI_API_VERSION,
+        azure_endpoint=FOUNDRY_ENDPOINT,
+        api_key=FOUNDRY_KEY
+    )
+
+# Initialize search index on startup
+async def initialize_search_index():
+    """Create search index with vector search configuration"""
+    try:
+        index_client = get_search_index_client()
+        
+        logger.info(f"Checking for existing search index: {AZURE_SEARCH_INDEX_NAME}")
+        try:
+            existing_index = index_client.get_index(AZURE_SEARCH_INDEX_NAME)
+            logger.info(f"Search index '{AZURE_SEARCH_INDEX_NAME}' already exists, skipping creation")
+            return
+        except Exception as e:
+            logger.info(f"Index does not exist, will create it: {str(e)}")
+        
+        logger.info("Creating new search index...")
+        # Define fields with proper properties to avoid serialization warnings
+        fields = [
+            SimpleField(name="chunk_id", type=SearchFieldDataType.String, key=True, filterable=True),
+            SimpleField(name="document_id", type=SearchFieldDataType.String, filterable=True),
+            SimpleField(name="user_id", type=SearchFieldDataType.String, filterable=True),
+            SearchableField(name="title", type=SearchFieldDataType.String),
+            SearchableField(name="content", type=SearchFieldDataType.String),
+            SearchField(
+                name="content_vector",
+                type=SearchFieldDataType.Collection(SearchFieldDataType.Single),
+                searchable=True,
+                vector_search_dimensions=VECTOR_DIM,
+                vector_search_profile_name="default"
+            ),
+        ]
+        
+        # Define vector search configuration
+        vector_search = VectorSearch(
+            algorithms=[
+                HnswAlgorithmConfiguration(
+                    name="default",
+                    parameters={
+                        "metric": "cosine"
+                    }
+                )
+            ],
+            profiles=[
+                VectorSearchProfile(
+                    name="default",
+                    algorithm_configuration_name="default"
+                )
+            ]
+        )
+        
+        # Create index with proper configuration
+        index = SearchIndex(
+            name=AZURE_SEARCH_INDEX_NAME,
+            fields=fields,
+            vector_search=vector_search
+        )
+        
+        result = index_client.create_or_update_index(index)
+        logger.info(f"Search index '{AZURE_SEARCH_INDEX_NAME}' created successfully")
+        logger.info(f"Index creation result: {result.name}")
+        
+    except Exception as e:
+        logger.error(f"Error initializing search index: {str(e)}", exc_info=True)
+        raise
+
+# Initialize EasyOCR reader
+def initialize_ocr_reader():
+    """Initialize EasyOCR reader once at startup"""
+    global ocr_reader
+    if ocr_reader is None:
+        logger.info("Initializing EasyOCR reader...")
+        try:
+            ocr_reader = easyocr.Reader(['en'], download_enabled=False)  # Disable download since we preloaded
+            logger.info("EasyOCR reader initialized successfully")
+        except Exception as e:
+            logger.error(f"Error initializing EasyOCR reader: {str(e)}")
+            # Fallback to allowing downloads if preloaded models fail
+            try:
+                ocr_reader = easyocr.Reader(['en'], download_enabled=True)
+                logger.info("EasyOCR reader initialized with download fallback")
+            except Exception as e2:
+                logger.error(f"Fallback initialization also failed: {str(e2)}")
+                raise
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Handle startup and shutdown events using lifespan context manager"""
+    # Startup
+    logger.info("RAG Ingest Service starting up...")
+    try:
+        await initialize_search_index()
+        initialize_ocr_reader()  # Initialize OCR reader at startup
+    except Exception as e:
+        logger.error(f"Error during startup initialization: {str(e)}", exc_info=True)
+    yield
+    # Shutdown
+    logger.info("RAG Ingest Service shutting down")
+
+app = FastAPI(title="RAG Ingest Service with Docling", version="1.0.0", lifespan=lifespan)
+
+# CORS Configuration - Allow all requests for production testing
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["*"]
+)
 
 # Request models
 class DocumentIngestRequest(BaseModel):
     document_id: str
     user_id: str
-    container_name: str = "documents"
-    trigger_indexer: bool = True
+    document_url: str  # URL to the document (PDF, etc.)
+    document_title: Optional[str] = None
 
-# Initialize search index, skillset, and indexer on startup
-@app.on_event("startup")
-async def startup_event():
-    """Create search index, skillset, data source, and indexer if they don't exist"""
+def embed_text(text: str) -> list:
+    """Generate embeddings using Azure OpenAI"""
     try:
-        index_client = get_search_index_client()
-        indexer_client = get_search_indexer_client()
-        
-        # 1. Create Search Index
-        logger.info(f"Creating search index: {INDEX_NAME}")
-        fields = [
-            SimpleField(name="parent_id", type=SearchFieldDataType.String),
-            SimpleField(name="chunk_id", type=SearchFieldDataType.String, key=True, filterable=True),
-            SimpleField(name="document_id", type=SearchFieldDataType.String, filterable=True),
-            SimpleField(name="user_id", type=SearchFieldDataType.String, filterable=True),
-            SearchableField(name="title", type=SearchFieldDataType.String),
-            SearchableField(name="chunk", type=SearchFieldDataType.String),
-            SearchableField(
-                name="locations",
-                type=SearchFieldDataType.Collection(SearchFieldDataType.String),
-                filterable=True
-            ),
-            SearchableField(
-                name="text_vector",
-                type=SearchFieldDataType.Collection(SearchFieldDataType.Single),
-                vector_search_dimensions=1024,
-                vector_search_profile_name="myHnswProfile"
-            ),
-        ]
-        
-        vector_search = VectorSearch(
-            algorithms=[HnswAlgorithmConfiguration(name="myHnsw")],
-            profiles=[VectorSearchProfile(
-                name="myHnswProfile",
-                algorithm_configuration_name="myHnsw",
-                vectorizer_name="myOpenAI"
-            )],
-            vectorizers=[AzureOpenAIVectorizer(
-                vectorizer_name="myOpenAI",
-                kind="azureOpenAI",
-                parameters=AzureOpenAIVectorizerParameters(
-                    resource_url=FOUNDRY_ENDPOINT,
-                    deployment_name="text-embedding-3-large",
-                    model_name="text-embedding-3-large",
-                    api_key=FOUNDRY_KEY
-                )
-            )]
+        openai_client = get_openai_client()
+        response = openai_client.embeddings.create(
+            input=text,
+            model=AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT
         )
-        
-        index = SearchIndex(name=INDEX_NAME, fields=fields, vector_search=vector_search)
-        index_client.create_or_update_index(index)
-        logger.info(f"Search index '{INDEX_NAME}' created/updated")
-        
-        # 2. Create Data Source Connection
-        logger.info(f"Creating data source: {DATA_SOURCE_NAME}")
-        container = SearchIndexerDataContainer(name="documents")
-        data_source = SearchIndexerDataSourceConnection(
-            name=DATA_SOURCE_NAME,
-            type="azureblob",
-            connection_string=AZURE_STORAGE_CONNECTION,
-            container=container
-        )
-        indexer_client.create_or_update_data_source_connection(data_source)
-        logger.info(f"Data source '{DATA_SOURCE_NAME}' created/updated")
-        
-        # 3. Create Skillset
-        logger.info(f"Creating skillset: {SKILLSET_NAME}")
-        
-        # Split skill for chunking
-        split_skill = SplitSkill(
-            description="Split skill to chunk documents",
-            text_split_mode="pages",
-            context="/document",
-            maximum_page_length=2000,
-            page_overlap_length=500,
-            inputs=[InputFieldMappingEntry(name="text", source="/document/content")],
-            outputs=[OutputFieldMappingEntry(name="textItems", target_name="pages")]
-        )
-        
-        # Embedding skill
-        embedding_skill = AzureOpenAIEmbeddingSkill(
-            description="Generate embeddings via Azure OpenAI",
-            context="/document/pages/*",
-            resource_url=FOUNDRY_ENDPOINT,
-            deployment_name="text-embedding-3-large",
-            model_name="text-embedding-3-large",
-            dimensions=1024,
-            api_key=FOUNDRY_KEY,
-            inputs=[InputFieldMappingEntry(name="text", source="/document/pages/*")],
-            outputs=[OutputFieldMappingEntry(name="embedding", target_name="text_vector")]
-        )
-        
-        # Entity recognition skill for locations
-        entity_skill = EntityRecognitionSkill(
-            description="Recognize entities in text",
-            context="/document/pages/*",
-            categories=["Location"],
-            default_language_code="en",
-            inputs=[InputFieldMappingEntry(name="text", source="/document/pages/*")],
-            outputs=[OutputFieldMappingEntry(name="locations", target_name="locations")]
-        )
-        
-        # Index projections for chunked data
-        index_projections = SearchIndexerIndexProjection(
-            selectors=[SearchIndexerIndexProjectionSelector(
-                target_index_name=INDEX_NAME,
-                parent_key_field_name="parent_id",
-                source_context="/document/pages/*",
-                mappings=[
-                    InputFieldMappingEntry(name="chunk", source="/document/pages/*"),
-                    InputFieldMappingEntry(name="text_vector", source="/document/pages/*/text_vector"),
-                    InputFieldMappingEntry(name="locations", source="/document/pages/*/locations"),
-                    InputFieldMappingEntry(name="title", source="/document/metadata_storage_name"),
-                    InputFieldMappingEntry(name="document_id", source="/document/metadata_storage_name"),
-                ]
-            )],
-            parameters=SearchIndexerIndexProjectionsParameters(
-                projection_mode=IndexProjectionMode.SKIP_INDEXING_PARENT_DOCUMENTS
-            )
-        )
-        
-        cognitive_services = CognitiveServicesAccountKey(key=AZURE_AI_SERVICES_KEY)
-        
-        skillset = SearchIndexerSkillset(
-            name=SKILLSET_NAME,
-            description="Skillset to chunk documents and generate embeddings",
-            skills=[split_skill, embedding_skill, entity_skill],
-            index_projection=index_projections,
-            cognitive_services_account=cognitive_services
-        )
-        
-        indexer_client.create_or_update_skillset(skillset)
-        logger.info(f"Skillset '{SKILLSET_NAME}' created/updated")
-        
-        # 4. Create Indexer
-        logger.info(f"Creating indexer: {INDEXER_NAME}")
-        indexer = SearchIndexer(
-            name=INDEXER_NAME,
-            description="Indexer to process documents and generate embeddings",
-            skillset_name=SKILLSET_NAME,
-            target_index_name=INDEX_NAME,
-            data_source_name=DATA_SOURCE_NAME,
-            field_mappings=[
-                FieldMapping(source_field_name="metadata_storage_path", target_field_name="document_id")
-            ]
-        )
-        
-        indexer_client.create_or_update_indexer(indexer)
-        logger.info(f"Indexer '{INDEXER_NAME}' created/updated")
-        logger.info("RAG pipeline initialization complete!")
-        
+        return response.data[0].embedding
     except Exception as e:
-        logger.error(f"Error initializing RAG pipeline: {str(e)}")
+        logger.error(f"Error generating embedding: {str(e)}")
         raise
 
-@app.get("/health")
-async def health_check():
-    return {"status": "healthy", "service": "rag-ingest-service"}
-
-@app.post("/ingest")
-async def trigger_indexing(request: DocumentIngestRequest):
-    """Trigger indexer to process documents from blob storage"""
+def embed_texts(texts: list) -> list:
+    """Generate embeddings for multiple texts using Azure OpenAI batch API"""
     try:
-        logger.info(f"Triggering indexer for user: {request.user_id}")
+        openai_client = get_openai_client()
+        response = openai_client.embeddings.create(
+            input=texts,
+            model=AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT
+        )
+        return [data.embedding for data in response.data]
+    except Exception as e:
+        logger.error(f"Error generating embeddings: {str(e)}")
+        raise
+
+async def notify_document_service_completion(document_id: str, max_retries: int = 5):
+    """Notify document-service of completion - disabled for background processing"""
+    logger.info(f"[INFO] Document {document_id} processing completed - no callback to document service")
+    return True
+
+async def notify_document_service_failure(document_id: str, max_retries: int = 3):
+    """Notify document-service of failure - disabled for background processing"""
+    logger.info(f"[INFO] Document {document_id} processing failed - no callback to document service")
+    return True
+
+@app.post("/ingest-docling")
+async def ingest_document_docling(request: DocumentIngestRequest):
+    """
+    Ingest and process a document using Docling:
+    1. Parse PDF/document with Docling
+    2. Chunk using HierarchicalChunker
+    3. Generate embeddings using Azure OpenAI
+    4. Upload to Azure AI Search
+    5. No callback - process independently
+    """
+    try:
+        logger.info(f"Starting Docling ingestion for document: {request.document_id}, user: {request.user_id}")
+        console.print(f"[bold yellow]Processing document: {request.document_url}[/bold yellow]")
         
-        indexer_client = get_search_indexer_client()
-        
-        if request.trigger_indexer:
-            # Run the indexer
-            indexer_client.run_indexer(INDEXER_NAME)
-            logger.info(f"Indexer '{INDEXER_NAME}' triggered successfully")
+        # Step 1: Parse document with Docling or handle text files
+        if request.document_url.lower().endswith('.txt'):
+            # Handle text files directly
+            logger.info(f"Processing text file directly: {request.document_url}")
+            response = requests.get(request.document_url, timeout=30)
+            response.raise_for_status()
+            text_content = response.text
             
-            return {
-                "status": "success",
-                "message": "Indexer triggered. Documents will be processed automatically.",
-                "indexer_name": INDEXER_NAME
-            }
+            # Create a simple document structure for chunking
+            from docling.datamodel.base import Document
+            from docling.datamodel.document import InputDocument
+            from docling_core.types.doc.document import DoclingDocument
+            
+            # Create a mock result structure for text files
+            class MockResult:
+                def __init__(self, text):
+                    self.document = DoclingDocument()
+                    # Add the text content to the document
+                    self.document.text = text
+            
+            result = MockResult(text_content)
+            console.print("[green]✓ Text file processed successfully[/green]")
         else:
-            return {
-                "status": "success",
-                "message": "Indexer not triggered. Documents will be processed on next scheduled run."
-            }
+            # Handle other document types with Docling
+            converter = DocumentConverter()
+            logger.info(f"Parsing document from URL: {request.document_url}")
+            result = converter.convert(request.document_url)
+            console.print("[green]✓ Document parsed successfully[/green]")
         
-    except Exception as e:
-        logger.error(f"Error triggering indexer: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/indexer/status")
-async def get_indexer_status():
-    """Get the current status of the indexer"""
-    try:
-        indexer_client = get_search_indexer_client()
-        status = indexer_client.get_indexer_status(INDEXER_NAME)
+        # Step 2: Chunk the document
+        chunker = HierarchicalChunker()
+        doc_chunks = list(chunker.chunk(result.document))
+        logger.info(f"Document chunked into {len(doc_chunks)} chunks")
         
-        return {
-            "indexer_name": INDEXER_NAME,
-            "status": status.status,
-            "last_result": {
-                "status": status.last_result.status if status.last_result else None,
-                "error_message": status.last_result.error_message if status.last_result else None,
-                "items_processed": status.last_result.items_processed if status.last_result else 0,
-                "items_failed": status.last_result.items_failed if status.last_result else 0
-            } if status.last_result else None
-        }
+        all_chunks = []
+        for idx, chunk in enumerate(doc_chunks):
+            chunk_id = f"{request.document_id}_chunk_{idx}"
+            chunk_text = chunk.text
+            all_chunks.append({
+                "chunk_id": chunk_id,
+                "content": chunk_text,
+                "document_id": request.document_id,
+                "user_id": request.user_id,
+                "title": request.document_title or "Untitled"
+            })
         
-    except Exception as e:
-        logger.error(f"Error getting indexer status: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/indexer/reset")
-async def reset_indexer():
-    """Reset the indexer to reprocess all documents"""
-    try:
-        indexer_client = get_search_indexer_client()
-        indexer_client.reset_indexer(INDEXER_NAME)
+        logger.info(f"Created {len(all_chunks)} chunks for indexing")
         
-        logger.info(f"Indexer '{INDEXER_NAME}' reset successfully")
+        # Step 3: Generate embeddings and prepare documents for upload
+        console.print("[bold yellow]Generating embeddings...[/bold yellow]")
+        upload_docs = []
+        
+        # Batch embedding generation for better performance
+        BATCH_SIZE = 10  # Azure OpenAI has limits on batch size
+        
+        for i in range(0, len(all_chunks), BATCH_SIZE):
+            batch_chunks = all_chunks[i:i + BATCH_SIZE]
+            batch_texts = [chunk["content"] for chunk in batch_chunks]
+            
+            try:
+                # Generate embeddings for the batch
+                embedding_vectors = embed_texts(batch_texts)
+                
+                # Add documents with embeddings to upload list
+                for j, chunk in enumerate(batch_chunks):
+                    upload_docs.append({
+                        "chunk_id": chunk["chunk_id"],
+                        "content": chunk["content"],
+                        "content_vector": embedding_vectors[j],
+                        "document_id": chunk["document_id"],
+                        "user_id": chunk["user_id"],
+                        "title": chunk["title"]
+                    })
+            except Exception as e:
+                logger.error(f"Error embedding batch {i//BATCH_SIZE}: {str(e)}")
+                # Fallback to individual embedding generation for failed batch
+                for chunk in batch_chunks:
+                    try:
+                        embedding_vector = embed_text(chunk["content"])
+                        upload_docs.append({
+                            "chunk_id": chunk["chunk_id"],
+                            "content": chunk["content"],
+                            "content_vector": embedding_vector,
+                            "document_id": chunk["document_id"],
+                            "user_id": chunk["user_id"],
+                            "title": chunk["title"]
+                        })
+                    except Exception as inner_e:
+                        logger.error(f"Error embedding chunk {chunk['chunk_id']}: {str(inner_e)}")
+                        continue
+        
+        console.print(f"[green]✓ Generated embeddings for {len(upload_docs)} chunks[/green]")
+        
+        # Step 4: Upload to Azure AI Search in batches
+        search_client = get_search_client()
+        BATCH_SIZE = 50
+        
+        console.print("[bold yellow]Uploading to Azure AI Search...[/bold yellow]")
+        for i in range(0, len(upload_docs), BATCH_SIZE):
+            subset = upload_docs[i : i + BATCH_SIZE]
+            resp = search_client.upload_documents(documents=subset)
+            all_succeeded = all(r.succeeded for r in resp)
+            logger.info(f"Uploaded batch {i} -> {i + len(subset)}; all_succeeded: {all_succeeded}")
+        
+        console.print(f"[green]✓ All {len(upload_docs)} chunks uploaded to Azure AI Search[/green]")
+        
+        # Step 5: No callback - just log completion
+        logger.info(f"[SUCCESS] Document {request.document_id} processed and indexed successfully - no callback")
         
         return {
             "status": "success",
-            "message": f"Indexer '{INDEXER_NAME}' has been reset"
+            "message": "Document ingested successfully with Docling",
+            "document_id": request.document_id,
+            "chunks_created": len(all_chunks),
+            "chunks_indexed": len(upload_docs)
         }
         
     except Exception as e:
-        logger.error(f"Error resetting indexer: {str(e)}")
+        logger.error(f"[ERROR] Error in Docling ingestion: {str(e)}", exc_info=True)
+        # No callback on failure
+        logger.info(f"[INFO] Document {request.document_id} processing failed - no callback")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy", "service": "rag-ingest-service", "rag_type": "Docling + Azure AI Search"}
+
+@app.get("/indexer/status")
+async def get_indexer_status():
+    """Check RAG service status with caching"""
+    import time
+    current_time = time.time()
+    
+    # Check if we have cached data that's still valid
+    if (indexer_status_cache["data"] is not None and 
+        current_time - indexer_status_cache["timestamp"] < indexer_status_cache["ttl"]):
+        logger.info("Returning cached indexer status")
+        return indexer_status_cache["data"]
+    
+    try:
+        search_client = get_search_client()
+        index_stats = search_client.get_search_statistics()
+        
+        result = {
+            "status": "operational",
+            "index_name": AZURE_SEARCH_INDEX_NAME,
+            "document_count": index_stats.document_count,
+            "storage_size_bytes": index_stats.storage_size
+        }
+        
+        # Update cache
+        indexer_status_cache["data"] = result
+        indexer_status_cache["timestamp"] = current_time
+        
+        logger.info("Updated indexer status cache")
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error getting indexer status: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.delete("/document/{document_id}")

@@ -6,9 +6,8 @@ spring:
     name: chat-service
   data:
     mongodb:
-      uri: ${COSMOS_URI:mongodb://localhost:27017}/chat_db?ssl=true&retrywrites=false&maxIdleTimeMS=120000
-      username: ${COSMOS_DB_NAME:}
-      password: ${COSMOS_KEY:}
+      uri: ${COSMOS_URI:mongodb://localhost:27017/chat_db?ssl=true&retrywrites=false&maxIdleTimeMS=120000}
+      database: ${COSMOS_DB_NAME:chat_db}
       auto-index-creation: true
   servlet:
     multipart:

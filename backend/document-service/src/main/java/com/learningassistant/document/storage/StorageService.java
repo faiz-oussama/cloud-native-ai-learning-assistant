@@ -30,4 +30,9 @@ public interface StorageService {
      * Initialize storage
      */
     void init();
+    
+    /**
+     * Get the storage type (e.g., 'azure', 'local')
+     */
+    String getStorageType();
 }

@@ -5,7 +5,7 @@ import java.time.LocalDateTime;
 public class Message {
     
     private String id;
-    private String role; // "user" or "assistant"
+    private String role;
     private String content;
     private LocalDateTime timestamp;
     

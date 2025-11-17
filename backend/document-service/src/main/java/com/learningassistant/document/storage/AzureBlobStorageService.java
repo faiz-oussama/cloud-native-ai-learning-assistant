@@ -4,6 +4,8 @@ import com.azure.storage.blob.BlobClient;
 import com.azure.storage.blob.BlobContainerClient;
 import com.azure.storage.blob.BlobServiceClient;
 import com.azure.storage.blob.BlobServiceClientBuilder;
+import com.azure.storage.blob.sas.BlobSasPermission;
+import com.azure.storage.blob.sas.BlobServiceSasSignatureValues;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -14,6 +16,8 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.util.UUID;
 
 @Service
@@ -103,7 +107,41 @@ public class AzureBlobStorageService implements StorageService {
     
     @Override
     public String getFileUrl(String blobName, String userId) {
-        BlobClient blobClient = containerClient.getBlobClient(blobName);
-        return blobClient.getBlobUrl();
+        try {
+            // 1.  SAS definition
+            BlobSasPermission permission = new BlobSasPermission()
+                    .setReadPermission(true);
+
+            OffsetDateTime expiry = OffsetDateTime.now(ZoneId.of("UTC")).plusDays(7);
+            OffsetDateTime start  = OffsetDateTime.now(ZoneId.of("UTC")).minusMinutes(5);
+
+            BlobServiceSasSignatureValues sasValues =
+                    new BlobServiceSasSignatureValues(expiry, permission)
+                            .setStartTime(start);
+
+            // 2.  generate SAS token
+            String sasToken = containerClient
+                    .getBlobClient(blobName)
+                    .generateSas(sasValues);   // <-- correct method
+
+            // 3.  build full URL
+            String url = containerClient
+                    .getBlobClient(blobName)
+                    .getBlobUrl()
+                    + "?" + sasToken;
+
+            logger.info("[CRITICAL] Generated SAS URL for blob {}: {}", blobName, url);
+            return url;
+
+        } catch (Exception e) {
+            logger.error("[ERROR] Failed to create SAS for blob {}", blobName, e);
+            // fall back to plain blob URL (will fail if container is private)
+            return containerClient.getBlobClient(blobName).getBlobUrl();
+        }
+    }
+    
+    @Override
+    public String getStorageType() {
+        return "azure";
     }
 }

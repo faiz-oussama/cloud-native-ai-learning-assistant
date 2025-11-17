@@ -10,6 +10,18 @@ export const useChat = (userId: string) => {
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Helper function to normalize session data
+  const normalizeSession = (session: any): ChatSession => {
+    // Handle potential snake_case from backend
+    if (session.document_ids && !session.documentIds) {
+      return {
+        ...session,
+        documentIds: session.document_ids
+      };
+    }
+    return session;
+  };
+
   const loadSessions = useCallback(async () => {
     if (!userId) return;
     
@@ -17,7 +29,8 @@ export const useChat = (userId: string) => {
     setError(null);
     try {
       const data = await apiClient.getUserSessions(userId);
-      setSessions(data);
+      const normalizedData = data.map(normalizeSession);
+      setSessions(normalizedData);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load sessions');
     } finally {
@@ -25,17 +38,18 @@ export const useChat = (userId: string) => {
     }
   }, [userId]);
 
-  const createSession = useCallback(async (documentId: string, title?: string) => {
+  const createSession = useCallback(async (documentIds: string[], title?: string) => {
     if (!userId) return null;
     
     setIsLoading(true);
     setError(null);
     try {
-      const session = await apiClient.createChatSession(userId, documentId, title);
-      setSessions(prev => [session, ...prev]);
-      setCurrentSession(session);
-      setMessages(session.messages || []);
-      return session;
+      const session = await apiClient.createChatSession(userId, documentIds, title);
+      const normalizedSession = normalizeSession(session);
+      setSessions(prev => [normalizedSession, ...prev]);
+      setCurrentSession(normalizedSession);
+      setMessages(normalizedSession.messages || []);
+      return normalizedSession;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create session');
       return null;
@@ -45,10 +59,12 @@ export const useChat = (userId: string) => {
   }, [userId]);
 
   const loadSession = useCallback(async (sessionId: string) => {
+    if (!userId) return;
+    
     setIsLoading(true);
     setError(null);
     try {
-      const sessionMessages = await apiClient.getSessionMessages(sessionId);
+      const sessionMessages = await apiClient.getSessionMessages(sessionId, userId);
       const session = sessions.find(s => s.id === sessionId);
       if (session) {
         setCurrentSession(session);
@@ -59,7 +75,7 @@ export const useChat = (userId: string) => {
     } finally {
       setIsLoading(false);
     }
-  }, [sessions]);
+  }, [sessions, userId]);
 
   const sendMessage = useCallback(async (content: string) => {
     if (!currentSession || !userId) return;
@@ -101,10 +117,12 @@ export const useChat = (userId: string) => {
   }, [currentSession, userId]);
 
   const deleteSession = useCallback(async (sessionId: string) => {
+    if (!userId) return;
+    
     setIsLoading(true);
     setError(null);
     try {
-      await apiClient.deleteSession(sessionId);
+      await apiClient.deleteSession(sessionId, userId);
       setSessions(prev => prev.filter(s => s.id !== sessionId));
       if (currentSession?.id === sessionId) {
         setCurrentSession(null);
@@ -115,7 +133,7 @@ export const useChat = (userId: string) => {
     } finally {
       setIsLoading(false);
     }
-  }, [currentSession]);
+  }, [currentSession, userId]);
 
   return {
     sessions,

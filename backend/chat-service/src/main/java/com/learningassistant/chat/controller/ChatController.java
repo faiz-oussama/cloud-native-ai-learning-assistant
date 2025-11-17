@@ -12,11 +12,12 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/chat")
-@CrossOrigin(origins = "*")
 public class ChatController {
     
     private static final Logger logger = LoggerFactory.getLogger(ChatController.class);
@@ -30,8 +31,8 @@ public class ChatController {
     @PostMapping("/sessions")
     public ResponseEntity<?> createSession(@Valid @RequestBody CreateSessionRequest request) {
         try {
-            logger.info("Creating chat session for user: {} with document: {}", 
-                       request.getUserId(), request.getDocumentId());
+            logger.info("Creating chat session for user: {} with documents: {}", 
+                       request.getUserId(), request.getDocumentIds());
             ChatSession session = chatService.createSession(request);
             return ResponseEntity.status(HttpStatus.CREATED).body(session);
         } catch (IllegalArgumentException e) {
@@ -102,6 +103,22 @@ public class ChatController {
             logger.error("Error deleting session: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body("Failed to delete session");
+        }
+    }
+    
+    @DeleteMapping("/admin/clear-all")
+    public ResponseEntity<?> clearAllData() {
+        try {
+            chatService.clearAllData();
+            Map<String, String> response = new HashMap<>();
+            response.put("message", "All chat sessions and messages cleared successfully");
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            logger.error("Error clearing data: {}", e.getMessage());
+            Map<String, String> errorResponse = new HashMap<>();
+            errorResponse.put("error", "Failed to clear data: " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(errorResponse);
         }
     }
 }

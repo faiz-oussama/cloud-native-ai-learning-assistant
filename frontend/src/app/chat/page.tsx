@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { ArrowUp, Lightbulb, BookOpen, BarChart3, Pencil, HelpCircle, Globe, Paperclip } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
-import { useChat } from '@/hooks/useChat';
+import { useChatContext } from '@/contexts/ChatContext';
 import { useDocuments } from '@/hooks/useDocuments';
 import { useAuthContext } from '@/contexts/AuthContext';
 import { AIMessage } from '@/components/thread/AIMessage';
@@ -19,7 +19,7 @@ export const ChatPage = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
   const { user } = useAuthContext();
-  const { messages, currentSession, isSending, sendMessage } = useChat(user?.id || '');
+  const { messages, currentSession, isSending, sendMessage } = useChatContext();
   const { uploadDocument, isUploading, uploadProgress } = useDocuments(user?.id || '');
 
   useEffect(() => {
@@ -77,9 +77,18 @@ export const ChatPage = () => {
     const file = e.target.files?.[0];
     if (!file) return;
     
-    await uploadDocument(file);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
+    try {
+      const uploadedDoc = await uploadDocument(file);
+      if (uploadedDoc && user?.id) {
+        // Just upload the document, don't create a session automatically
+        console.log('Document uploaded successfully:', uploadedDoc.documentId);
+      }
+    } catch (err) {
+      console.error('Upload failed:', err);
+    } finally {
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
     }
   };
 
@@ -193,6 +202,7 @@ export const ChatPage = () => {
                       size="icon-xs"
                       onClick={() => fileInputRef.current?.click()}
                       disabled={isUploading}
+                      title={isUploading ? 'Uploading document...' : 'Upload document'}
                     >
                       <Paperclip className="h-3.5 w-3.5" />
                     </Button>

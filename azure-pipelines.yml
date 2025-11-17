@@ -4,8 +4,8 @@ trigger:
 variables:
   IMAGE_TAG: $(Build.BuildId)
   RESOURCE_GROUP: MLops_project
-  ACA_ENV: aca-env-aila
-  ACR_NAME: acraila.azurecr.io
+  ACA_ENV: managedEnvironment-MLopsproject-be35
+  ACR_NAME: acraila03478.azurecr.io
 
 stages:
 # =========================
@@ -164,7 +164,7 @@ stages:
               COSMOS_KEY=@Microsoft.KeyVault(SecretUri=https://kv-aila.vault.azure.net/secrets/cosmos-key) \
               COSMOS_DB_NAME=@Microsoft.KeyVault(SecretUri=https://kv-aila.vault.azure.net/secrets/cosmos-db-name) \
               DOCUMENT_SERVICE_URL="http://document-service" \
-              RAG_QUERY_URL="http://rag-query-service"
+              RAG_QUERY_URL="http://rag-query-service.internal.niceplant-c464d163.swedencentral.azurecontainerapps.io"
 
           az containerapp update \
             --name quiz-service \
@@ -194,7 +194,9 @@ stages:
               SEARCH_SERVICE_KEY=@Microsoft.KeyVault(SecretUri=https://kv-aila.vault.azure.net/secrets/ai-search) \
               FOUNDRY_ENDPOINT=@Microsoft.KeyVault(SecretUri=https://kv-aila.vault.azure.net/secrets/foundary-endpoint) \
               FOUNDRY_KEY=@Microsoft.KeyVault(SecretUri=https://kv-aila.vault.azure.net/secrets/foundary-key) \
-              AZURE_AI_SERVICES_KEY=@Microsoft.KeyVault(SecretUri=https://kv-aila.vault.azure.net/secrets/foundary-key)
+              AZURE_AI_SERVICES_KEY=@Microsoft.KeyVault(SecretUri=https://kv-aila.vault.azure.net/secrets/foundary-key) \
+              AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT="text-embedding-ada-002" \
+              DOCUMENT_SERVICE_URL="http://document-service"
 
           az containerapp update \
             --name rag-query-service \

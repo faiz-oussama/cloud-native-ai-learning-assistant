@@ -8,14 +8,24 @@ import com.learningassistant.document.repository.DocumentRepository;
 import com.learningassistant.document.storage.StorageService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionCallbackWithoutResult;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.multipart.MultipartFile;
+
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
@@ -27,6 +37,12 @@ public class DocumentService {
     private final StorageService storageService;
     private final RagIngestClient ragIngestClient;
     private final ServiceBusService serviceBusService;
+    
+    @PersistenceContext
+    private EntityManager entityManager;
+    
+    @Autowired
+    private PlatformTransactionManager transactionManager;
     
     public DocumentService(DocumentRepository documentRepository,
                           StorageService storageService,
@@ -41,8 +57,10 @@ public class DocumentService {
         storageService.init();
     }
     
-    @Transactional
     public DocumentResponse uploadDocument(MultipartFile file, String userId) {
+        String correlationId = UUID.randomUUID().toString();
+        MDC.put("correlationId", correlationId);
+        
         try {
             // Validate file
             if (file.isEmpty()) {
@@ -53,52 +71,85 @@ public class DocumentService {
             String fileType = file.getContentType();
             Long fileSize = file.getSize();
             
-            logger.info("Uploading document: {} for user: {}", fileName, userId);
+            logger.info("[UPLOAD] Uploading document: {} for user: {} | CorrelationId: {}", fileName, userId, correlationId);
             
             // Store file
             String filePath = storageService.storeFile(file, userId);
             
-            // Create document entity
-            Document document = new Document(userId, fileName, fileType, fileSize, filePath);
-            document.setStorageLocation("local");
-            document.setProcessingStatus(ProcessingStatus.PENDING);
+            // Generate and normalize document ID upfront
+            String documentId = UUID.randomUUID().toString().toLowerCase().trim();
             
-            // Save to database
-            Document savedDocument = documentRepository.save(document);
+            // Use TransactionTemplate for save only
+            TransactionTemplate template = new TransactionTemplate(transactionManager);
+            Document savedDocument = template.execute(status -> {
+                // Create document entity with COMPLETED status immediately
+                Document document = new Document(userId, fileName, fileType, fileSize, filePath);
+                document.setId(documentId);
+                
+                String storageType = storageService.getStorageType();
+                document.setStorageLocation(storageType);
+                
+                // Set COMPLETED status immediately - document is available right away
+                document.setProcessingStatus(ProcessingStatus.COMPLETED);
+                document.setUploadedAt(LocalDateTime.now());
+                document.setProcessedAt(LocalDateTime.now());
+                
+                // Save and flush
+                Document saved = documentRepository.saveAndFlush(document);
+                
+                logger.info("[UPLOAD] Document saved with ID: {} | Status: {} | CorrelationId: {}", 
+                    saved.getId(), saved.getProcessingStatus(), correlationId);
+                
+                // Verify persistence
+                if (!documentRepository.existsById(saved.getId())) {
+                    logger.error("[UPLOAD] Document not found after save - potential schema/connection issue | Document ID: {}", saved.getId());
+                    throw new IllegalStateException("Document not persisted after save: " + saved.getId());
+                }
+                
+                // Log database connection info for debugging
+                try {
+                    logger.info("[DEBUG] Database connection info - checking if document exists in DB");
+                    Optional<Document> verifyDoc = documentRepository.findById(saved.getId());
+                    if (verifyDoc.isPresent()) {
+                        logger.info("[DEBUG] Document verified in database with ID: {} and status: {}", 
+                            verifyDoc.get().getId(), verifyDoc.get().getProcessingStatus());
+                    } else {
+                        logger.error("[DEBUG] Document NOT found in database immediately after save - potential transaction issue");
+                    }
+                } catch (Exception e) {
+                    logger.error("[DEBUG] Error verifying document in database: {}", e.getMessage());
+                }
+                
+                return saved;
+            });
             
-            logger.info("Document saved with ID: {}", savedDocument.getId());
+            // Transaction has now committed; document is visible to other transactions
             
-            // Send message to Service Bus to trigger RAG ingestion
+            // Trigger RAG ingest in background AFTER document is marked as completed
+            String fileUrl = storageService.getFileUrl(filePath, userId);
             try {
-                // Get the blob URL from storage service
-                String blobUrl = storageService.getFileUrl(filePath, userId);
-                
-                // Send message to Service Bus
-                serviceBusService.sendDocumentIngestMessage(
-                    savedDocument.getId(),
-                    userId,
-                    blobUrl,
+                ragIngestClient.triggerDocumentIngestion(
+                    savedDocument.getId(), 
+                    userId, 
+                    fileUrl, 
                     fileName,
-                    fileType
+                    correlationId
                 );
-                
-                // Update status to PROCESSING (will be updated by indexer)
-                document.setProcessingStatus(ProcessingStatus.PROCESSING);
-                documentRepository.save(document);
-                
-                logger.info("Document {} queued for RAG ingestion via Service Bus", savedDocument.getId());
-                
+                logger.info("[UPLOAD] RAG ingestion triggered for document: {} (document already marked as completed) | CorrelationId: {}", 
+                    savedDocument.getId(), correlationId);
             } catch (Exception e) {
-                logger.error("Error sending document to Service Bus: {}", e.getMessage(), e);
-                document.setProcessingStatus(ProcessingStatus.FAILED);
-                documentRepository.save(document);
+                // Log the error but don't fail the upload since document is already completed
+                logger.warn("[UPLOAD] Failed to trigger RAG ingestion for document: {} (document still completed) | CorrelationId: {}", 
+                    savedDocument.getId(), correlationId, e);
             }
             
             return toDocumentResponse(savedDocument);
             
         } catch (Exception e) {
-            logger.error("Error uploading document: {}", e.getMessage(), e);
+            logger.error("[UPLOAD] Error uploading document | CorrelationId: {}", correlationId, e);
             throw new RuntimeException("Failed to upload document: " + e.getMessage());
+        } finally {
+            MDC.remove("correlationId");
         }
     }
     
@@ -145,6 +196,101 @@ public class DocumentService {
                 .collect(Collectors.toList());
     }
     
+    @Transactional
+    public void markDocumentCompleted(String documentId, String ragDocumentId) {
+        // Add retry logic to handle potential timing issues
+        Optional<Document> documentOpt = findDocumentWithRetry(documentId, 3, 1000);
+        
+        if (documentOpt.isEmpty()) {
+            throw new IllegalArgumentException("Document not found: " + documentId);
+        }
+        
+        Document document = documentOpt.get();
+        document.setProcessingStatus(ProcessingStatus.COMPLETED);
+        document.setProcessedAt(LocalDateTime.now());
+        
+        if (ragDocumentId != null && !ragDocumentId.isEmpty()) {
+            document.setRagDocumentId(ragDocumentId);
+        }
+        
+        Document savedDocument = documentRepository.save(document);
+        logger.info("[SUCCESS] Document {} marked as completed", documentId);
+    }
+    
+    @Transactional
+    public void markDocumentFailed(String documentId) {
+        // Add retry logic to handle potential timing issues
+        Optional<Document> documentOpt = findDocumentWithRetry(documentId, 3, 1000);
+        
+        if (documentOpt.isEmpty()) {
+            throw new IllegalArgumentException("Document not found: " + documentId);
+        }
+        
+        Document document = documentOpt.get();
+        document.setProcessingStatus(ProcessingStatus.FAILED);
+        document.setProcessedAt(LocalDateTime.now());
+        
+        documentRepository.save(document);
+        logger.info("Document {} marked as failed", documentId);
+    }
+    
+    /**
+     * Find document with retry logic to handle potential timing issues
+     * @param documentId The document ID to find
+     * @param maxRetries Maximum number of retries
+     * @param delayMs Delay between retries in milliseconds
+     * @return Optional containing the document if found
+     */
+    private Optional<Document> findDocumentWithRetry(String documentId, int maxRetries, long delayMs) {
+        Optional<Document> documentOpt = documentRepository.findById(documentId);
+        
+        int attempts = 0;
+        while (documentOpt.isEmpty() && attempts < maxRetries) {
+            attempts++;
+            logger.info("Document {} not found, attempt {}/{}. Waiting {}ms before retry...", 
+                documentId, attempts, maxRetries, delayMs);
+            
+            try {
+                Thread.sleep(delayMs);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+            
+            documentOpt = documentRepository.findById(documentId);
+            
+            // Increase delay for next attempt (exponential backoff)
+            delayMs *= 2;
+        }
+        
+        if (documentOpt.isPresent()) {
+            logger.info("Document {} found after {} attempt(s)", documentId, attempts);
+        } else {
+            logger.error("Document {} not found after {} attempts", documentId, maxRetries);
+        }
+        
+        return documentOpt;
+    }
+    
+    @Transactional
+    public void clearAllDocuments() {
+        List<Document> allDocuments = documentRepository.findAll();
+        logger.info("Clearing {} documents", allDocuments.size());
+        
+        // Delete all files from storage
+        for (Document document : allDocuments) {
+            try {
+                storageService.deleteFile(document.getFilePath());
+            } catch (Exception e) {
+                logger.warn("Failed to delete file for document {}: {}", document.getId(), e.getMessage());
+            }
+        }
+        
+        // Delete all documents from database
+        documentRepository.deleteAll();
+        logger.info("All documents cleared successfully");
+    }
+    
     private DocumentResponse toDocumentResponse(Document document) {
         return new DocumentResponse(
             document.getId(),
@@ -156,5 +302,27 @@ public class DocumentService {
             document.getUploadedAt(),
             document.getProcessedAt()
         );
+    }
+    
+    /**
+     * Normalize document IDs consistently across the system
+     * @param documentId The document ID to normalize
+     * @return Normalized document ID (lowercase, trimmed)
+     * @throws IllegalArgumentException if ID is invalid
+     */
+    public static String normalizeDocumentId(String documentId) {
+        if (documentId == null) {
+            throw new IllegalArgumentException("Document ID cannot be null");
+        }
+        String normalized = documentId.toLowerCase().trim();
+        
+        // Validate UUID format
+        try {
+            UUID.fromString(normalized);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("Invalid UUID format: " + documentId, e);
+        }
+        
+        return normalized;
     }
 }

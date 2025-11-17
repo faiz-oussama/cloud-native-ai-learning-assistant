@@ -44,6 +44,44 @@ export const useDocuments = (userId: string) => {
       
       setDocuments(prev => [document, ...prev]);
       
+      // Poll for document processing status
+      const pollStatus = async (docId: string, attempts = 0): Promise<Document | null> => {
+        if (attempts > 20) { // Max 20 attempts (40 seconds)
+          console.warn('Document processing timeout');
+          return document;
+        }
+        
+        try {
+          const status = await apiClient.checkDocumentStatus(docId);
+          
+          if (status.processingStatus === 'COMPLETED') {
+            // Update document in list
+            setDocuments(prev => 
+              prev.map(d => d.documentId === docId ? status : d)
+            );
+            return status;
+          } else if (status.processingStatus === 'FAILED') {
+            setError('Document processing failed');
+            return null;
+          }
+          
+          // Still processing, poll again
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          return pollStatus(docId, attempts + 1);
+        } catch (err) {
+          console.error('Failed to check document status:', err);
+          return document;
+        }
+      };
+      
+      // Poll for document processing status in background
+      // This polling happens separately from session creation
+      pollStatus(document.documentId).then(completedDoc => {
+        if (completedDoc) {
+          console.log('Document processing completed:', completedDoc);
+        }
+      });
+      
       setTimeout(() => {
         setUploadProgress(0);
         setIsUploading(false);
@@ -63,7 +101,7 @@ export const useDocuments = (userId: string) => {
     setError(null);
     try {
       await apiClient.deleteDocument(documentId);
-      setDocuments(prev => prev.filter(d => d.id !== documentId));
+      setDocuments(prev => prev.filter(d => d.documentId !== documentId));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete document');
     } finally {

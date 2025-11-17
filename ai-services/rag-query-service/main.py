@@ -1,258 +1,147 @@
+"""
+FastAPI RAG application using Azure OpenAI and Azure AI Search
+
+This sample app demonstrates how to build a RAG (Retrieval Augmented Generation) application
+that combines the power of Azure OpenAI with Azure AI Search to create an AI assistant
+that answers questions based on your own data.
+
+Key components:
+1. FastAPI web framework for the backend API
+2. Azure OpenAI for AI chat completions
+3. Azure AI Search for document retrieval
+4. Pydantic for configuration and data validation
+"""
 import os
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-from azure.core.credentials import AzureKeyCredential
-from azure.search.documents import SearchClient
-from azure.search.documents.models import VectorizableTextQuery
-from openai import AzureOpenAI
-import uvicorn
 import logging
-from typing import List, Optional
+import uvicorn
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from fastapi.responses import HTMLResponse
+
+from app.models.chat_models import ChatRequest, QueryRequest, QueryResponse
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="RAG Query Service", version="1.0.0")
+# Import the RAG chat service after logging to capture any initialization logs
+from app.services.rag_chat_service import rag_chat_service
 
-# Environment variables
-SEARCH_SERVICE_ENDPOINT = os.getenv("SEARCH_SERVICE_ENDPOINT")
-SEARCH_SERVICE_KEY = os.getenv("SEARCH_SERVICE_KEY")
-FOUNDRY_ENDPOINT = os.getenv("FOUNDRY_ENDPOINT")
-FOUNDRY_KEY = os.getenv("FOUNDRY_KEY")
-INDEX_NAME = "documents-index"
+# Create FastAPI app
+app = FastAPI(
+    title="FastAPI RAG with Azure OpenAI and Azure AI Search",
+    description="A FastAPI application that demonstrates retrieval augmented generation using Azure OpenAI and Azure AI Search.",
+    version="1.0.0",
+)
 
-# Grounded prompt template for RAG
-GROUNDED_PROMPT = """You are an AI assistant that helps users learn from the information found in the source material.
-Answer the query using only the sources provided below.
-Use bullets if the answer has multiple points.
-If the answer is longer than 3 sentences, provide a summary.
-Answer ONLY with the facts listed in the list of sources below. Cite your source when you answer the question.
-If there isn't enough information below, say you don't know.
-Do not generate answers that don't use the sources below.
-Query: {query}
-Sources:
-{sources}
-"""
-
-# Initialize Azure clients
-def get_openai_client():
-    return AzureOpenAI(
-        api_version="2024-06-01",
-        azure_endpoint=FOUNDRY_ENDPOINT,
-        api_key=FOUNDRY_KEY
-    )
-
-def get_search_client():
-    credential = AzureKeyCredential(SEARCH_SERVICE_KEY)
-    return SearchClient(
-        endpoint=SEARCH_SERVICE_ENDPOINT,
-        index_name=INDEX_NAME,
-        credential=credential
-    )
-
-# Request/Response models
-class QueryRequest(BaseModel):
-    query: str
-    user_id: str
-    document_id: Optional[str] = None
-    top_k: int = 5
-    temperature: float = 0.7
-
-class Source(BaseModel):
-    chunk_id: str
-    document_id: str
-    title: str
-    content: str
-    locations: Optional[List[str]] = []
-    score: float
-
-class QueryResponse(BaseModel):
-    answer: str
-    sources: List[Source]
-    query: str
-    model_used: str
+# CORS Configuration - Allow all requests for production testing
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["*"]
+)
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy", "service": "rag-query-service"}
+    """
+    Health check endpoint
+    """
+    return {"status": "ok", "service": "rag-query-service"}
+
+
+@app.post("/api/chat/completion")
+async def chat_completion(chat_request: ChatRequest):
+    """
+    Process a chat completion request with RAG capabilities
+    
+    This endpoint:
+    1. Receives the chat history from the client
+    2. Passes it to the RAG service for processing
+    3. Returns AI-generated responses with citations
+    4. Handles errors gracefully with user-friendly messages
+    """
+    try:
+        if not chat_request.messages:
+            raise HTTPException(status_code=400, detail="Messages cannot be empty")
+        
+        # Get chat completion from RAG service
+        response = await rag_chat_service.get_chat_completion(chat_request.messages)
+        
+        return response
+        
+    except Exception as e:
+        error_str = str(e).lower()
+        logger.error(f"Error in chat completion: {str(e)}")
+        
+        # Handle specific error types with friendly messages
+        if "rate limit" in error_str or "capacity" in error_str or "quota" in error_str:
+            return {
+                "choices": [{
+                    "message": {
+                        "role": "assistant",
+                        "content": "The AI service is currently experiencing high demand. Please wait a moment and try again."
+                    }
+                }]
+            }
+        else:
+            # Return a standard error response for all other errors
+            return {
+                "choices": [{
+                    "message": {
+                        "role": "assistant",
+                        "content": f"An error occurred: {str(e)}"
+                    }
+                }]
+            }
+
 
 @app.post("/query", response_model=QueryResponse)
 async def query_documents(request: QueryRequest):
-    """Query documents using RAG pattern: hybrid search + LLM chat completion"""
+    """
+    Query documents using RAG pattern
+    
+    This endpoint:
+    1. Receives a query request from the client
+    2. Passes it to the RAG service for processing
+    3. Returns AI-generated responses with citations
+    4. Handles errors gracefully with user-friendly messages
+    """
     try:
-        logger.info(f"Received query from user {request.user_id}: {request.query}")
+        # Get chat completion from RAG service
+        response = await rag_chat_service.query_documents(request)
         
-        search_client = get_search_client()
-        openai_client = get_openai_client()
+        return response
         
-        # Build filter for user isolation
-        filter_query = f"user_id eq '{request.user_id}'"
-        if request.document_id:
-            filter_query += f" and document_id eq '{request.document_id}'"
+    except Exception as e:
+        error_str = str(e).lower()
+        logger.error(f"Error in query documents: {str(e)}")
         
-        # Hybrid search: keyword search + vector search
-        # Vector query uses text-to-vector conversion built into Azure Search
-        vector_query = VectorizableTextQuery(
-            text=request.query,
-            k_nearest_neighbors=50,
-            fields="text_vector"
-        )
-        
-        # Execute hybrid search
-        search_results = search_client.search(
-            search_text=request.query,
-            vector_queries=[vector_query],
-            filter=filter_query,
-            select=["chunk_id", "document_id", "title", "chunk", "locations"],
-            top=request.top_k
-        )
-        
-        # Collect search results and format for LLM
-        sources = []
-        sources_list = []
-        
-        for result in search_results:
-            source = Source(
-                chunk_id=result.get("chunk_id", ""),
-                document_id=result.get("document_id", ""),
-                title=result.get("title", "Unknown"),
-                content=result.get("chunk", ""),
-                locations=result.get("locations", []),
-                score=result.get("@search.score", 0.0)
-            )
-            sources.append(source)
-            sources_list.append(result)
-        
-        logger.info(f"Retrieved {len(sources)} relevant chunks via hybrid search")
-        
-        # Handle no results
-        if not sources:
+        # Handle specific error types with friendly messages
+        if "rate limit" in error_str or "capacity" in error_str or "quota" in error_str:
             return QueryResponse(
-                answer="I couldn't find any relevant information in your documents to answer this question.",
-                sources=[],
+                answer="The AI service is currently experiencing high demand. Please wait a moment and try again.",
                 query=request.query,
                 model_used="gpt-4"
             )
-        
-        # Format sources for the LLM prompt
-        # Use unique separator to make sources distinct
-        sources_formatted = "=================\n".join([
-            f'TITLE: {doc.get("title", "Unknown")}, CONTENT: {doc.get("chunk", "")}, LOCATIONS: {doc.get("locations", [])}'
-            for doc in sources_list
-        ])
-        
-        # Create grounded prompt with query and sources
-        prompt = GROUNDED_PROMPT.format(
-            query=request.query,
-            sources=sources_formatted
-        )
-        
-        # Call Azure OpenAI chat completion
-        response = openai_client.chat.completions.create(
-            model="gpt-4",  # or gpt-4o, gpt-35-turbo
-            messages=[
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ],
-            temperature=request.temperature,
-            max_tokens=800
-        )
-        
-        answer = response.choices[0].message.content
-        
-        logger.info(f"Generated grounded answer for query: {request.query}")
-        
-        return QueryResponse(
-            answer=answer,
-            sources=sources,
-            query=request.query,
-            model_used="gpt-4"
-        )
-        
-    except Exception as e:
-        logger.error(f"Error processing query: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        else:
+            # Return a standard error response for all other errors
+            return QueryResponse(
+                answer=f"An error occurred: {str(e)}",
+                query=request.query,
+                model_used="gpt-4"
+            )
 
-@app.post("/search")
-async def search_documents(request: QueryRequest):
-    """Hybrid search without LLM generation (retrieval only)"""
-    try:
-        logger.info(f"Search request from user {request.user_id}: {request.query}")
-        
-        search_client = get_search_client()
-        
-        # Build filter
-        filter_query = f"user_id eq '{request.user_id}'"
-        if request.document_id:
-            filter_query += f" and document_id eq '{request.document_id}'"
-        
-        # Hybrid search with vector query
-        vector_query = VectorizableTextQuery(
-            text=request.query,
-            k_nearest_neighbors=50,
-            fields="text_vector"
-        )
-        
-        search_results = search_client.search(
-            search_text=request.query,
-            vector_queries=[vector_query],
-            filter=filter_query,
-            select=["chunk_id", "document_id", "title", "chunk", "locations"],
-            top=request.top_k
-        )
-        
-        sources = []
-        for result in search_results:
-            sources.append(Source(
-                chunk_id=result.get("chunk_id", ""),
-                document_id=result.get("document_id", ""),
-                title=result.get("title", "Unknown"),
-                content=result.get("chunk", ""),
-                locations=result.get("locations", []),
-                score=result.get("@search.score", 0.0)
-            ))
-        
-        return {
-            "query": request.query,
-            "sources": sources,
-            "count": len(sources),
-            "search_type": "hybrid"
-        }
-        
-    except Exception as e:
-        logger.error(f"Error searching documents: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/chat")
-async def chat_completion(request: QueryRequest):
-    """Direct chat completion without document search (for testing)"""
-    try:
-        openai_client = get_openai_client()
-        
-        response = openai_client.chat.completions.create(
-            model="gpt-4",
-            messages=[
-                {
-                    "role": "user",
-                    "content": request.query
-                }
-            ],
-            temperature=request.temperature,
-            max_tokens=800
-        )
-        
-        return {
-            "answer": response.choices[0].message.content,
-            "query": request.query,
-            "model_used": "gpt-4"
-        }
-        
-    except Exception as e:
-        logger.error(f"Error in chat completion: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8085)
+    # This lets you test the application locally with Uvicorn
+    # For production deployment, use a proper ASGI server like Gunicorn
+    port = int(os.environ.get("PORT", 8085))
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)

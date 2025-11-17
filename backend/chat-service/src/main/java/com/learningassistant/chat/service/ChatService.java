@@ -12,6 +12,7 @@ import com.learningassistant.chat.repository.ChatSessionRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
@@ -35,25 +36,44 @@ public class ChatService {
     }
     
     public ChatSession createSession(CreateSessionRequest request) {
-        // Verify document exists
-        Optional<ChatDocument> document = documentRepository.findById(request.getDocumentId());
-        if (document.isEmpty()) {
-            throw new IllegalArgumentException("Document not found with ID: " + request.getDocumentId());
+        // Verify documents exist in document-service
+        // First check if documents exist in our local database
+        if (request.getDocumentIds() != null && !request.getDocumentIds().isEmpty()) {
+            for (String documentId : request.getDocumentIds()) {
+                Optional<ChatDocument> localDocument = documentRepository.findById(documentId);
+                
+                if (localDocument.isEmpty()) {
+                    // Document not found locally, this is expected if upload went to document-service
+                    logger.warn("Document {} not found in chat-service database. This may be normal if using document-service.", 
+                        documentId);
+                    // We'll allow session creation anyway - the documentId from document-service is the source of truth
+                }
+            }
         }
         
         String title = request.getTitle();
         if (title == null || title.trim().isEmpty()) {
-            title = "Chat about " + document.get().getFileName();
+            if (request.getDocumentIds() != null && !request.getDocumentIds().isEmpty()) {
+                // Use the first document's name for the title
+                Optional<ChatDocument> firstDocument = documentRepository.findById(request.getDocumentIds().get(0));
+                if (firstDocument.isPresent()) {
+                    title = "Chat about " + firstDocument.get().getFileName();
+                } else {
+                    title = "Chat Session";
+                }
+            } else {
+                title = "Chat Session";
+            }
         }
         
         ChatSession session = new ChatSession(
             request.getUserId(),
-            request.getDocumentId(),
+            request.getDocumentIds(),
             title
         );
         
         ChatSession savedSession = sessionRepository.save(session);
-        logger.info("Created chat session: {} for document: {}", savedSession.getId(), request.getDocumentId());
+        logger.info("Created chat session: {} with documents: {}", savedSession.getId(), request.getDocumentIds());
         
         return savedSession;
     }
@@ -74,13 +94,15 @@ public class ChatService {
         // Build conversation history
         String conversationHistory = buildConversationHistory(session.getMessages());
         
-        // Query RAG service for answer
-        String answer = ragQueryClient.queryDocument(
-            session.getDocumentId(),
-            request.getMessage(),
-            userId,
-            conversationHistory
-        );
+        // For now, we'll query the RAG service with the first document
+        // In a more advanced implementation, we could query multiple documents
+        String documentId = session.getDocumentIds() != null && !session.getDocumentIds().isEmpty() 
+            ? session.getDocumentIds().get(0) 
+            : null;
+            
+        String answer = documentId != null 
+            ? ragQueryClient.queryDocument(documentId, request.getMessage(), userId, conversationHistory)
+            : "No document associated with this chat session.";
         
         // Create assistant message
         Message assistantMessage = new Message("assistant", answer);
@@ -95,7 +117,7 @@ public class ChatService {
     }
     
     public List<ChatSession> getUserSessions(String userId) {
-        return sessionRepository.findByUserIdOrderByUpdatedAtDesc(userId);
+        return sessionRepository.findByUserId(userId);
     }
     
     public Optional<ChatSession> getSessionById(String sessionId, String userId) {
@@ -109,6 +131,18 @@ public class ChatService {
             logger.info("Deleted session: {}", sessionId);
         } else {
             throw new IllegalArgumentException("Session not found or access denied");
+        }
+    }
+    
+    @Transactional
+    public void clearAllData() {
+        try {
+            sessionRepository.deleteAll();
+            documentRepository.deleteAll();
+            logger.info("All chat data cleared successfully");
+        } catch (Exception e) {
+            logger.error("Error clearing chat data: {}", e.getMessage(), e);
+            throw e;
         }
     }
     

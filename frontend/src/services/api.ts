@@ -13,7 +13,7 @@ export interface AuthResponse {
 }
 
 export interface Document {
-  id: string;
+  documentId: string;
   userId: string;
   fileName: string;
   fileType: string;
@@ -26,11 +26,13 @@ export interface Document {
 export interface ChatSession {
   id: string;
   userId: string;
-  documentId: string;
+  documentIds: string[];
   title: string;
   createdAt: string;
   updatedAt: string;
   messages: Message[];
+  // Handle potential snake_case from backend
+  document_ids?: string[];
 }
 
 export interface Message {
@@ -131,7 +133,7 @@ class APIClient {
   }
 
   async getDocuments(userId: string): Promise<Document[]> {
-    return this.request<Document[]>(`${API_ENDPOINTS.documents.list}?userId=${userId}`);
+    return this.request<Document[]>(API_ENDPOINTS.documents.userDocuments(userId));
   }
 
   async deleteDocument(documentId: string): Promise<void> {
@@ -140,11 +142,15 @@ class APIClient {
     });
   }
 
+  async checkDocumentStatus(documentId: string): Promise<Document> {
+    return this.request<Document>(`${API_ENDPOINTS.documents.base}/api/documents/${documentId}/status`);
+  }
+
   // Chat APIs
-  async createChatSession(userId: string, documentId: string, title?: string): Promise<ChatSession> {
+  async createChatSession(userId: string, documentIds: string[], title?: string): Promise<ChatSession> {
     return this.request<ChatSession>(API_ENDPOINTS.chat.createSession, {
       method: 'POST',
-      body: JSON.stringify({ userId, documentId, title }),
+      body: JSON.stringify({ userId, documentIds, title }),
     });
   }
 
@@ -153,24 +159,22 @@ class APIClient {
   }
 
   async sendMessage(sessionId: string, message: string, userId: string): Promise<ChatMessageResponse> {
-    return this.request<ChatMessageResponse>(API_ENDPOINTS.chat.sendMessage, {
+    const url = `${API_ENDPOINTS.chat.sendMessage}?userId=${encodeURIComponent(userId)}`;
+    return this.request<ChatMessageResponse>(url, {
       method: 'POST',
       body: JSON.stringify({ sessionId, message }),
-      headers: {
-        'X-User-Id': userId,
-      },
     });
   }
 
-  async getSessionMessages(sessionId: string): Promise<Message[]> {
-    const session = await this.request<ChatSession>(
-      API_ENDPOINTS.chat.sessionMessages(sessionId)
-    );
+  async getSessionMessages(sessionId: string, userId: string): Promise<Message[]> {
+    const url = `${API_ENDPOINTS.chat.sessions}/${sessionId}?userId=${encodeURIComponent(userId)}`;
+    const session = await this.request<ChatSession>(url);
     return session.messages || [];
   }
 
-  async deleteSession(sessionId: string): Promise<void> {
-    await this.request(`${API_ENDPOINTS.chat.sessions}/${sessionId}`, {
+  async deleteSession(sessionId: string, userId: string): Promise<void> {
+    const url = `${API_ENDPOINTS.chat.sessions}/${sessionId}?userId=${encodeURIComponent(userId)}`;
+    await this.request(url, {
       method: 'DELETE',
     });
   }

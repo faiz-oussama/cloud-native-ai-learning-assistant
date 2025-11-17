@@ -14,7 +14,6 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/documents")
-@CrossOrigin(origins = "*")
 public class DocumentController {
     
     private static final Logger logger = LoggerFactory.getLogger(DocumentController.class);

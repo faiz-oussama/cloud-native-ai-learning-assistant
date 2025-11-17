@@ -1,0 +1,164 @@
+{
+    "id":  "/subscriptions/a9cca55d-3f3f-43fe-b43d-0764be6d89b6/resourceGroups/MLops_project/providers/Microsoft.App/containerapps/rag-ingest-service",
+    "identity":  {
+                     "type":  "None"
+                 },
+    "location":  "Italy North",
+    "name":  "rag-ingest-service",
+    "properties":  {
+                       "configuration":  {
+                                             "activeRevisionsMode":  "Single",
+                                             "dapr":  null,
+                                             "identitySettings":  [
+
+                                                                  ],
+                                             "ingress":  {
+                                                             "additionalPortMappings":  null,
+                                                             "allowInsecure":  false,
+                                                             "clientCertificateMode":  null,
+                                                             "corsPolicy":  null,
+                                                             "customDomains":  null,
+                                                             "exposedPort":  0,
+                                                             "external":  false,
+                                                             "fqdn":  "rag-ingest-service.internal.bluepond-e5cc5c8a.italynorth.azurecontainerapps.io",
+                                                             "ipSecurityRestrictions":  null,
+                                                             "stickySessions":  null,
+                                                             "targetPort":  8080,
+                                                             "traffic":  [
+                                                                             {
+                                                                                 "latestRevision":  true,
+                                                                                 "weight":  100
+                                                                             }
+                                                                         ],
+                                                             "transport":  "Auto"
+                                                         },
+                                             "maxInactiveRevisions":  100,
+                                             "registries":  [
+                                                                {
+                                                                    "identity":  "",
+                                                                    "passwordSecretRef":  "acrailaazurecrio-acraila",
+                                                                    "server":  "acraila03478.azurecr.io",
+                                                                    "username":  "acraila03478"
+                                                                }
+                                                            ],
+                                             "runtime":  null,
+                                             "secrets":  [
+                                                             {
+                                                                 "name":  "acrailaazurecrio-acraila"
+                                                             }
+                                                         ],
+                                             "service":  null
+                                         },
+                       "customDomainVerificationId":  "C9D36441DA1C547EA33760564FA027F6AB4DCE7FD8D41604680C6F9A36406C57",
+                       "delegatedIdentities":  [
+
+                                               ],
+                       "environmentId":  "/subscriptions/a9cca55d-3f3f-43fe-b43d-0764be6d89b6/resourceGroups/MLops_project/providers/Microsoft.App/managedEnvironments/managedEnvironment-MLopsproject-be35",
+                       "eventStreamEndpoint":  "https://italynorth.azurecontainerapps.dev/subscriptions/a9cca55d-3f3f-43fe-b43d-0764be6d89b6/resourceGroups/MLops_project/containerApps/rag-ingest-service/eventstream",
+                       "latestReadyRevisionName":  "rag-ingest-service--fvum86p",
+                       "latestRevisionFqdn":  "rag-ingest-service--0000004.internal.bluepond-e5cc5c8a.italynorth.azurecontainerapps.io",
+                       "latestRevisionName":  "rag-ingest-service--0000004",
+                       "managedEnvironmentId":  "/subscriptions/a9cca55d-3f3f-43fe-b43d-0764be6d89b6/resourceGroups/MLops_project/providers/Microsoft.App/managedEnvironments/managedEnvironment-MLopsproject-be35",
+                       "outboundIpAddresses":  [
+                                                   "4.232.216.124",
+                                                   "4.232.216.181",
+                                                   "4.232.216.239",
+                                                   "4.232.216.96",
+                                                   "172.213.196.51",
+                                                   "172.213.196.82",
+                                                   "172.213.196.79",
+                                                   "172.213.196.80",
+                                                   "172.213.196.77",
+                                                   "172.213.196.65",
+                                                   "4.232.189.182",
+                                                   "172.213.216.24",
+                                                   "72.146.29.76",
+                                                   "72.146.14.133",
+                                                   "72.146.14.138",
+                                                   "172.213.210.149",
+                                                   "4.232.189.91",
+                                                   "4.232.189.225",
+                                                   "172.213.216.88",
+                                                   "172.213.226.119",
+                                                   "4.232.216.223",
+                                                   "4.232.216.232",
+                                                   "4.232.216.240",
+                                                   "4.232.216.233",
+                                                   "172.213.194.172",
+                                                   "172.213.194.150",
+                                                   "172.213.194.184",
+                                                   "172.213.194.148",
+                                                   "172.213.194.157",
+                                                   "172.213.194.146",
+                                                   "9.235.117.7"
+                                               ],
+                       "provisioningState":  "Succeeded",
+                       "runningStatus":  "Running",
+                       "template":  {
+                                        "containers":  [
+                                                           {
+                                                               "env":  [
+                                                                           {
+                                                                               "name":  "SERVICE_BUS_CONNECTION",
+                                                                               "value":  "Endpoint=sb://arcaila.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=O0yjgJqWGHRoDpZ7qVNxoVpUGUbLBIJHn+ASbKIFuks="
+                                                                           },
+                                                                           {
+                                                                               "name":  "AZURE_STORAGE_CONNECTION",
+                                                                               "value":  "DefaultEndpointsProtocol=https;AccountName=llmopsblobstorage;AccountKey=9zfwC37rg7bMC4lbTWqxekuJfMZ1JcFXd0fxUfaLq1wIzw1tKrr9ZfBNLCzOc0Rpdp9TS3k6pH3P+AStwPRXww==;EndpointSuffix=core.windows.net"
+                                                                           },
+                                                                           {
+                                                                               "name":  "SEARCH_SERVICE_ENDPOINT",
+                                                                               "value":  "https://llmops-search-service.search.windows.net"
+                                                                           },
+                                                                           {
+                                                                               "name":  "SEARCH_SERVICE_KEY",
+                                                                               "value":  "M8Jfgt7aucn6pWa2h1b6pBXjZEezxcIT2Uj0NVzDwcA"
+                                                                           },
+                                                                           {
+                                                                               "name":  "FOUNDRY_ENDPOINT",
+                                                                               "value":  "https://project-llmops.services.ai.azure.com/"
+                                                                           },
+                                                                           {
+                                                                               "name":  "FOUNDRY_KEY",
+                                                                               "value":  "5pPBjXGv6kd8fJcNem21AIglvY8dQLppROxBMLJc2j6"
+                                                                           },
+                                                                           {
+                                                                               "name":  "properties.configuration.ingress.targetPort",
+                                                                               "value":  "8084"
+                                                                           }
+                                                                       ],
+                                                               "image":  "acraila03478.azurecr.io/rag-ingest-service:202511111118",
+                                                               "name":  "rag-ingest-service",
+                                                               "resources":  {
+                                                                                 "cpu":  0.5,
+                                                                                 "ephemeralStorage":  "2Gi",
+                                                                                 "memory":  "1Gi"
+                                                                             }
+                                                           }
+                                                       ],
+                                        "initContainers":  null,
+                                        "revisionSuffix":  "",
+                                        "scale":  {
+                                                      "cooldownPeriod":  300,
+                                                      "maxReplicas":  10,
+                                                      "minReplicas":  null,
+                                                      "pollingInterval":  30,
+                                                      "rules":  null
+                                                  },
+                                        "serviceBinds":  null,
+                                        "terminationGracePeriodSeconds":  null,
+                                        "volumes":  null
+                                    },
+                       "workloadProfileName":  "Consumption"
+                   },
+    "resourceGroup":  "MLops_project",
+    "systemData":  {
+                       "createdAt":  "2025-11-10T15:11:29.8577685",
+                       "createdBy":  "faizouss123@gmail.com",
+                       "createdByType":  "User",
+                       "lastModifiedAt":  "2025-11-11T10:22:41.2491168",
+                       "lastModifiedBy":  "faizouss123@gmail.com",
+                       "lastModifiedByType":  "User"
+                   },
+    "type":  "Microsoft.App/containerApps"
+}

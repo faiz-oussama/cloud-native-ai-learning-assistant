@@ -12,7 +12,7 @@ public class ChatSession {
     @Id
     private String id;
     private String userId;
-    private String documentId; // Reference to ChatDocument
+    private List<String> documentIds;
     private String title;
     private List<Message> messages;
     private LocalDateTime createdAt;
@@ -20,14 +20,15 @@ public class ChatSession {
     
     // Constructors
     public ChatSession() {
+        this.documentIds = new ArrayList<>();
         this.messages = new ArrayList<>();
         this.createdAt = LocalDateTime.now();
         this.updatedAt = LocalDateTime.now();
     }
     
-    public ChatSession(String userId, String documentId, String title) {
+    public ChatSession(String userId, List<String> documentIds, String title) {
         this.userId = userId;
-        this.documentId = documentId;
+        this.documentIds = documentIds != null ? documentIds : new ArrayList<>();
         this.title = title;
         this.messages = new ArrayList<>();
         this.createdAt = LocalDateTime.now();
@@ -51,12 +52,20 @@ public class ChatSession {
         this.userId = userId;
     }
     
-    public String getDocumentId() {
-        return documentId;
+    public List<String> getDocumentIds() {
+        return documentIds;
     }
     
-    public void setDocumentId(String documentId) {
-        this.documentId = documentId;
+    public void setDocumentIds(List<String> documentIds) {
+        this.documentIds = documentIds;
+    }
+    
+    // Convenience method to add a single document ID
+    public void addDocumentId(String documentId) {
+        if (this.documentIds == null) {
+            this.documentIds = new ArrayList<>();
+        }
+        this.documentIds.add(documentId);
     }
     
     public String getTitle() {

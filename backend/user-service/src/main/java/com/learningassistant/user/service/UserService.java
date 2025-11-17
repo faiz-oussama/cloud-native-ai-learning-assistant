@@ -50,4 +50,18 @@ public class UserService {
             throw new RuntimeException("User not found with id: " + userId);
         }
     }
+    
+    public User authenticateUser(String username, String password) {
+        Optional<User> userOptional = userRepository.findByUsername(username);
+        if (userOptional.isEmpty()) {
+            throw new RuntimeException("Invalid username or password");
+        }
+        
+        User user = userOptional.get();
+        if (!passwordEncoder.matches(password, user.getPassword())) {
+            throw new RuntimeException("Invalid username or password");
+        }
+        
+        return user;
+    }
 }

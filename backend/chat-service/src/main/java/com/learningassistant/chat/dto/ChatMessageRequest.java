@@ -1,8 +1,13 @@
 package com.learningassistant.chat.dto;
 
+import jakarta.validation.constraints.NotBlank;
+
 public class ChatMessageRequest {
     
+    @NotBlank(message = "Session ID is required")
     private String sessionId;
+    
+    @NotBlank(message = "Message content is required")
     private String message;
     
     // Constructors

@@ -7,8 +7,8 @@ WORKDIR /app
 # Copy requirements file
 COPY requirements.txt .
 
-# Install dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Install dependencies with increased timeout for large packages
+RUN pip install --no-cache-dir --default-timeout=1000 -r requirements.txt
 
 # Copy the application code
 COPY . .

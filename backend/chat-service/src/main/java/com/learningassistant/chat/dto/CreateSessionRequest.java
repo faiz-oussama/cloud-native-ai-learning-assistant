@@ -1,18 +1,26 @@
 package com.learningassistant.chat.dto;
 
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import java.util.List;
+
 public class CreateSessionRequest {
     
+    @NotBlank(message = "User ID is required")
     private String userId;
-    private String documentId;
+    
+    @NotNull(message = "Document IDs are required")
+    private List<String> documentIds; // Changed from single documentId to list of documentIds
+    
     private String title;
     
     // Constructors
     public CreateSessionRequest() {
     }
     
-    public CreateSessionRequest(String userId, String documentId, String title) {
+    public CreateSessionRequest(String userId, List<String> documentIds, String title) {
         this.userId = userId;
-        this.documentId = documentId;
+        this.documentIds = documentIds;
         this.title = title;
     }
     
@@ -25,12 +33,12 @@ public class CreateSessionRequest {
         this.userId = userId;
     }
     
-    public String getDocumentId() {
-        return documentId;
+    public List<String> getDocumentIds() {
+        return documentIds;
     }
     
-    public void setDocumentId(String documentId) {
-        this.documentId = documentId;
+    public void setDocumentIds(List<String> documentIds) {
+        this.documentIds = documentIds;
     }
     
     public String getTitle() {
