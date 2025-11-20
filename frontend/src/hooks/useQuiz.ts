@@ -10,13 +10,16 @@ export const useQuiz = (userId: string) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const createQuiz = useCallback(async (title: string, documentText: string) => {
+  const createQuiz = useCallback(async (
+    title: string,
+    options: { documentId?: string; documentText?: string }
+  ) => {
     if (!userId) return null;
     
     setIsLoading(true);
     setError(null);
     try {
-      const newQuiz = await apiClient.createQuiz(title, documentText, Number(userId));
+      const newQuiz = await apiClient.createQuiz(title, Number(userId), options);
       setQuiz(newQuiz);
       return newQuiz;
     } catch (err) {

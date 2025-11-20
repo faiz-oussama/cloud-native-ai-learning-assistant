@@ -225,10 +225,23 @@ class APIClient {
   }
 
   // Quiz APIs
-  async createQuiz(title: string, documentText: string, userId: number): Promise<Quiz> {
+  async createQuiz(
+    title: string,
+    userId: number,
+    options: { documentId?: string; documentText?: string }
+  ): Promise<Quiz> {
+    if (!options.documentId && !options.documentText) {
+      throw new Error('Either documentId or documentText must be provided');
+    }
+
     return this.request<Quiz>(API_ENDPOINTS.quiz.create, {
       method: 'POST',
-      body: JSON.stringify({ title, documentText, userId }),
+      body: JSON.stringify({
+        title,
+        userId,
+        documentId: options.documentId,
+        documentText: options.documentText
+      }),
     });
   }
 

@@ -47,11 +47,21 @@ export const QuizPage = () => {
   }, [user?.id, loadDocuments, loadSubmissions]);
 
   const handleCreateQuiz = async () => {
-    if (!quizTitle.trim() || !documentText.trim()) {
+    if (!quizTitle.trim()) {
       return;
     }
 
-    const newQuiz = await createQuiz(quizTitle, documentText);
+    // If a document was selected, use its ID; otherwise use the provided text
+    const options = selectedDocument
+      ? { documentId: selectedDocument }
+      : { documentText: documentText.trim() };
+
+    if (!options.documentId && !options.documentText) {
+      alert('Please select a document or paste text content');
+      return;
+    }
+
+    const newQuiz = await createQuiz(quizTitle, options);
     if (newQuiz) {
       setView('quiz');
       setCurrentQuestionIndex(0);

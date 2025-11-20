@@ -11,6 +11,7 @@ public class DocumentResponse {
     private String fileType;
     private Long fileSize;
     private ProcessingStatus processingStatus;
+    private String extractedText;  // Full text content for RAG/Quiz
     private LocalDateTime uploadedAt;
     private LocalDateTime processedAt;
     
@@ -94,5 +95,13 @@ public class DocumentResponse {
     
     public void setProcessedAt(LocalDateTime processedAt) {
         this.processedAt = processedAt;
+    }
+
+    public String getExtractedText() {
+        return extractedText;
+    }
+
+    public void setExtractedText(String extractedText) {
+        this.extractedText = extractedText;
     }
 }

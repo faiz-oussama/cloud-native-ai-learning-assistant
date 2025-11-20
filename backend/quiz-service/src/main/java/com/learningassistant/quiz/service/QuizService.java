@@ -1,5 +1,6 @@
 package com.learningassistant.quiz.service;
 
+import com.learningassistant.quiz.client.DocumentServiceClient;
 import com.learningassistant.quiz.client.QuizGenerationClient;
 import com.learningassistant.quiz.dto.*;
 import com.learningassistant.quiz.model.Question;
@@ -7,6 +8,8 @@ import com.learningassistant.quiz.model.Quiz;
 import com.learningassistant.quiz.model.QuizSubmission;
 import com.learningassistant.quiz.repository.QuizRepository;
 import com.learningassistant.quiz.repository.QuizSubmissionRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -18,33 +21,56 @@ import java.util.stream.Collectors;
 @Service
 public class QuizService {
 
+    private static final Logger logger = LoggerFactory.getLogger(QuizService.class);
+
     private final QuizRepository quizRepository;
     private final QuizSubmissionRepository submissionRepository;
     private final QuizGenerationClient quizGenerationClient;
+    private final DocumentServiceClient documentServiceClient;
 
     public QuizService(QuizRepository quizRepository,
                        QuizSubmissionRepository submissionRepository,
-                       QuizGenerationClient quizGenerationClient) {
+                       QuizGenerationClient quizGenerationClient,
+                       DocumentServiceClient documentServiceClient) {
         this.quizRepository = quizRepository;
         this.submissionRepository = submissionRepository;
         this.quizGenerationClient = quizGenerationClient;
+        this.documentServiceClient = documentServiceClient;
     }
 
     public Quiz createAndSaveQuiz(CreateQuizRequest request) {
+        logger.info("Creating quiz for user: {}", request.userId());
+
+        // === SOLUTION A1: Fetch document text from document-service ===
+        String documentText;
+
+        if (request.documentId() != null && !request.documentId().isEmpty()) {
+            // Mode 1: Fetch text from document-service by ID
+            logger.info("Fetching document text from document-service for documentId: {}", request.documentId());
+            documentText = documentServiceClient.getDocumentText(request.documentId());
+            logger.info("Retrieved {} characters from document-service", documentText.length());
+        } else if (request.documentText() != null && !request.documentText().isEmpty()) {
+            // Mode 2: Use directly provided text (legacy/testing mode)
+            logger.info("Using directly provided document text ({} characters)", request.documentText().length());
+            documentText = request.documentText();
+        } else {
+            throw new IllegalArgumentException("Either documentId or documentText must be provided");
+        }
+
         // Get the user's past quizzes and calculate adaptive difficulty
         List<QuizSubmission> history = submissionRepository.findByUserId(request.userId());
         String difficulty = determineDifficulty(history);
+        logger.info("Determined difficulty: {} based on {} past submissions", difficulty, history.size());
 
         QuizGenerationRequest aiRequest = new QuizGenerationRequest(
-                request.documentText(),
+                documentText,
                 5,
                 difficulty
         );
 
         List<GeneratedQuestion> generatedQuestions = quizGenerationClient.generateQuiz(aiRequest);
-        System.out.println("=== QUIZ GENERATION DEBUG ===");
-        System.out.println("Requested: 5 questions, Difficulty: " + difficulty);
-        System.out.println("Received: " + generatedQuestions.size() + " questions from AI");
+        logger.info("Received {} questions from AI service (requested: 5, difficulty: {})",
+                    generatedQuestions.size(), difficulty);
 
         List<Question> questionEntities = generatedQuestions.stream()
                 .map(this::mapDtoToEntity)
@@ -53,11 +79,10 @@ public class QuizService {
         Quiz newQuiz = new Quiz();
         newQuiz.setTitle(request.title());
         newQuiz.setQuestions(questionEntities);
-        newQuiz.setDocumentContext(request.documentText());
+        newQuiz.setDocumentContext(documentText);
 
         Quiz savedQuiz = quizRepository.save(newQuiz);
-        System.out.println("Saved quiz with ID: " + savedQuiz.getId() + " and " + savedQuiz.getQuestions().size() + " questions");
-        System.out.println("=== END DEBUG ===");
+        logger.info("Saved quiz with ID: {} containing {} questions", savedQuiz.getId(), savedQuiz.getQuestions().size());
 
         return savedQuiz;
     }
@@ -90,28 +115,6 @@ public class QuizService {
         return entity;
     }
 
-    /**
-     * Temporary mock logic that returns a hard-coded quiz.
-     * This will be replaced with real generation logic in later tasks.
-     */
-    public Quiz createTestQuiz() {
-        Question mathQuestion = new Question();
-        mathQuestion.setQuestionText("What is 2 + 2?");
-        mathQuestion.setOptions(List.of("3", "4", "5", "6"));
-        mathQuestion.setCorrectAnswer("4");
-
-        Question capitalQuestion = new Question();
-        capitalQuestion.setQuestionText("What is the capital of France?");
-        capitalQuestion.setOptions(List.of("London", "Berlin", "Paris", "Rome"));
-        capitalQuestion.setCorrectAnswer("Paris");
-
-        Quiz quiz = new Quiz();
-        quiz.setId(1L);
-        quiz.setTitle("Test Quiz");
-        quiz.setQuestions(List.of(mathQuestion, capitalQuestion));
-
-        return quiz;
-    }
 
     public QuizResult gradeQuiz(Long quizId, QuizSubmissionRequest submissionRequest) {
         Quiz quiz = quizRepository.findById(quizId)
@@ -162,11 +165,11 @@ public class QuizService {
         System.out.println("=== SUBMISSION DEBUG ===");
         System.out.println("Saving submission for userId: " + submissionRequest.userId());
         System.out.println("Quiz ID: " + quizId + ", Score: " + (int) score);
-        
+
         QuizSubmission savedSubmission = submissionRepository.save(submission);
-        
+
         System.out.println("Saved submission with ID: " + savedSubmission.getId());
-        System.out.println("Verifying - Total submissions for user " + submissionRequest.userId() + ": " + 
+        System.out.println("Verifying - Total submissions for user " + submissionRequest.userId() + ": " +
                            submissionRepository.findByUserId(submissionRequest.userId()).size());
         System.out.println("=== END SUBMISSION DEBUG ===");
 
@@ -192,5 +195,27 @@ public class QuizService {
         System.out.println("Found " + submissions.size() + " submissions");
         System.out.println("=== END FETCH ===");
         return submissions;
+    }
+
+    /**
+     * Temporary mock logic that returns a hard-coded quiz for testing.
+     */
+    public Quiz createTestQuiz() {
+        Question mathQuestion = new Question();
+        mathQuestion.setQuestionText("What is 2 + 2?");
+        mathQuestion.setOptions(List.of("3", "4", "5", "6"));
+        mathQuestion.setCorrectAnswer("4");
+
+        Question capitalQuestion = new Question();
+        capitalQuestion.setQuestionText("What is the capital of France?");
+        capitalQuestion.setOptions(List.of("London", "Berlin", "Paris", "Rome"));
+        capitalQuestion.setCorrectAnswer("Paris");
+
+        Quiz quiz = new Quiz();
+        quiz.setId(1L);
+        quiz.setTitle("Test Quiz");
+        quiz.setQuestions(List.of(mathQuestion, capitalQuestion));
+
+        return quiz;
     }
 }

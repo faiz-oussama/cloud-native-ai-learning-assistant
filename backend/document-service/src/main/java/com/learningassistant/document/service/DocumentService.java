@@ -21,6 +21,7 @@ import org.springframework.web.multipart.MultipartFile;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 
+import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -291,6 +292,37 @@ public class DocumentService {
         logger.info("All documents cleared successfully");
     }
     
+    /**
+     * Get the full text content of a document.
+     * First checks if extractedText is cached in DB, otherwise reads from file.
+     */
+    public String getDocumentText(String documentId) throws IOException {
+        Optional<Document> documentOpt = documentRepository.findById(documentId);
+
+        if (documentOpt.isEmpty()) {
+            throw new IllegalArgumentException("Document not found: " + documentId);
+        }
+
+        Document document = documentOpt.get();
+
+        // If we already have extracted text cached, return it
+        if (document.getExtractedText() != null && !document.getExtractedText().isEmpty()) {
+            logger.info("Returning cached extracted text for document: {}", documentId);
+            return document.getExtractedText();
+        }
+
+        // Otherwise, read from storage
+        logger.info("Reading text from file for document: {}", documentId);
+        String text = storageService.readFileAsText(document.getFilePath());
+
+        // Cache it in the database for future use
+        document.setExtractedText(text);
+        documentRepository.save(document);
+        logger.info("Cached extracted text ({} chars) for document: {}", text.length(), documentId);
+
+        return text;
+    }
+
     private DocumentResponse toDocumentResponse(Document document) {
         return new DocumentResponse(
             document.getId(),

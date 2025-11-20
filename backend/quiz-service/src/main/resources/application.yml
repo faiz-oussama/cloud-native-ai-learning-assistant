@@ -25,6 +25,8 @@ spring:
 services:
   quiz-generation:
     url: ${QUIZ_GENERATION_URL:http://localhost:8086}
+  document-service:
+    url: ${DOCUMENT_SERVICE_URL:http://localhost:8081}
 
 logging:
   level:
