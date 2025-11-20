@@ -42,6 +42,10 @@ public class QuizService {
         );
 
         List<GeneratedQuestion> generatedQuestions = quizGenerationClient.generateQuiz(aiRequest);
+        System.out.println("=== QUIZ GENERATION DEBUG ===");
+        System.out.println("Requested: 5 questions, Difficulty: " + difficulty);
+        System.out.println("Received: " + generatedQuestions.size() + " questions from AI");
+
         List<Question> questionEntities = generatedQuestions.stream()
                 .map(this::mapDtoToEntity)
                 .collect(Collectors.toList());
@@ -51,7 +55,11 @@ public class QuizService {
         newQuiz.setQuestions(questionEntities);
         newQuiz.setDocumentContext(request.documentText());
 
-        return quizRepository.save(newQuiz);
+        Quiz savedQuiz = quizRepository.save(newQuiz);
+        System.out.println("Saved quiz with ID: " + savedQuiz.getId() + " and " + savedQuiz.getQuestions().size() + " questions");
+        System.out.println("=== END DEBUG ===");
+
+        return savedQuiz;
     }
 
     private String determineDifficulty(List<QuizSubmission> history) {
@@ -151,7 +159,16 @@ public class QuizService {
         submission.setAnswers(submissionRequest.answers());
         submission.setScore((int) score);
 
+        System.out.println("=== SUBMISSION DEBUG ===");
+        System.out.println("Saving submission for userId: " + submissionRequest.userId());
+        System.out.println("Quiz ID: " + quizId + ", Score: " + (int) score);
+        
         QuizSubmission savedSubmission = submissionRepository.save(submission);
+        
+        System.out.println("Saved submission with ID: " + savedSubmission.getId());
+        System.out.println("Verifying - Total submissions for user " + submissionRequest.userId() + ": " + 
+                           submissionRepository.findByUserId(submissionRequest.userId()).size());
+        System.out.println("=== END SUBMISSION DEBUG ===");
 
         return new QuizResult(
                 quizId,
@@ -169,6 +186,11 @@ public class QuizService {
     }
 
     public List<QuizSubmission> getSubmissionsForUser(Long userId) {
-        return submissionRepository.findByUserId(userId);
+        System.out.println("=== FETCHING SUBMISSIONS ===");
+        System.out.println("Getting submissions for userId: " + userId);
+        List<QuizSubmission> submissions = submissionRepository.findByUserId(userId);
+        System.out.println("Found " + submissions.size() + " submissions");
+        System.out.println("=== END FETCH ===");
+        return submissions;
     }
 }

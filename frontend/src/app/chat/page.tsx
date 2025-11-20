@@ -19,8 +19,14 @@ export const ChatPage = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
   const { user } = useAuthContext();
-  const { messages, currentSession, isSending, sendMessage } = useChatContext();
-  const { uploadDocument, isUploading, uploadProgress } = useDocuments(user?.id || '');
+  const { messages, currentSession, isSending, sendMessage, createSession } = useChatContext();
+  const { uploadDocument, isUploading, uploadProgress, documents, loadDocuments } = useDocuments(user?.id || '');
+
+  useEffect(() => {
+    if (user?.id) {
+      loadDocuments();
+    }
+  }, [user?.id, loadDocuments]);
 
   useEffect(() => {
     const getTimeBasedGreeting = () => {
@@ -80,8 +86,15 @@ export const ChatPage = () => {
     try {
       const uploadedDoc = await uploadDocument(file);
       if (uploadedDoc && user?.id) {
-        // Just upload the document, don't create a session automatically
         console.log('Document uploaded successfully:', uploadedDoc.documentId);
+
+        // Automatically create a chat session with the uploaded document
+        if (!currentSession) {
+          await createSession(
+            [uploadedDoc.documentId],
+            `Chat about ${uploadedDoc.fileName}`
+          );
+        }
       }
     } catch (err) {
       console.error('Upload failed:', err);
@@ -169,7 +182,7 @@ export const ChatPage = () => {
                       value={message}
                       onChange={handleInput}
                       onKeyDown={handleKeyDown}
-                      placeholder={currentSession ? "Ask anything" : "Create a session first"}
+                      placeholder={currentSession ? "Ask anything about your document..." : "Upload a document or start a new chat"}
                       disabled={!currentSession || isSending}
                       className="w-full resize-none border-none bg-transparent text-sm outline-none placeholder:text-muted-foreground focus-visible:outline-none min-h-[60px] max-h-[200px] disabled:opacity-50"
                       rows={1}

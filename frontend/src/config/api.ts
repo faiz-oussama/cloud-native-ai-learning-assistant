@@ -24,7 +24,7 @@ const QUIZ_SERVICE_URL = isProduction
   ? `https://quiz-service.${PROD_BASE_DOMAIN}` 
   : (import.meta.env.VITE_QUIZ_SERVICE_URL || 'http://localhost:8083');
 
-export const wAPI_ENDPOINTS = {
+export const API_ENDPOINTS = {
   // User Service
   users: {
     base: USER_SERVICE_URL,
@@ -54,9 +54,11 @@ export const wAPI_ENDPOINTS = {
   // Quiz Service
   quiz: {
     base: QUIZ_SERVICE_URL,
-    generate: `${QUIZ_SERVICE_URL}/api/quiz/generate`,
-    submit: `${QUIZ_SERVICE_URL}/api/quiz/submit`,
-    results: (quizId: string) => `${QUIZ_SERVICE_URL}/api/quiz/${quizId}/results`,
+    create: `${QUIZ_SERVICE_URL}/api/quizzes`,
+    getQuiz: (quizId: number) => `${QUIZ_SERVICE_URL}/api/quizzes/${quizId}`,
+    submit: (quizId: number) => `${QUIZ_SERVICE_URL}/api/quizzes/${quizId}/submit`,
+    userSubmissions: (userId: number) => `${QUIZ_SERVICE_URL}/api/quizzes/submissions/user/${userId}`,
+    test: `${QUIZ_SERVICE_URL}/api/quizzes/test`,
   },
 };
 
