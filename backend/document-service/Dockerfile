@@ -4,10 +4,9 @@ FROM eclipse-temurin:21-jdk-alpine
 WORKDIR /app
 
 # Copy the JAR file from the builder stage
-COPY --from=builder /app/backend/document-service/target/*.jar app.jar
-
+COPY target/*.jar app.jar
 # Expose the port the app runs on
-EXPOSE 8080
+EXPOSE 8081
 
 # Run the application
 ENTRYPOINT ["java", "-jar", "app.jar"]

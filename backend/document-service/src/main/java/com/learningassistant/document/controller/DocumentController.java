@@ -256,6 +256,33 @@ public class DocumentController {
         }
     }
     
+    /**
+     * NEW ENDPOINT: Get the full text content of a document
+     * Used by quiz-service to retrieve document text for quiz generation
+     */
+    @GetMapping("/{documentId}/text")
+    public ResponseEntity<?> getDocumentText(@PathVariable String documentId) {
+        try {
+            logger.info("Fetching text content for document: {}", documentId);
+            String text = documentService.getDocumentText(documentId);
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("documentId", documentId);
+            response.put("text", text);
+            response.put("length", text.length());
+            
+            return ResponseEntity.ok(response);
+        } catch (IllegalArgumentException e) {
+            logger.error("Document not found: {}", documentId);
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(createErrorResponse("Document not found: " + documentId));
+        } catch (Exception e) {
+            logger.error("Error fetching document text for {}: {}", documentId, e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(createErrorResponse("Failed to retrieve document text: " + e.getMessage()));
+        }
+    }
+    
     private Map<String, String> createErrorResponse(String message) {
         Map<String, String> error = new HashMap<>();
         error.put("error", message);

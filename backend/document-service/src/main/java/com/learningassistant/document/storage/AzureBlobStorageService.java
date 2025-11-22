@@ -95,6 +95,29 @@ public class AzureBlobStorageService implements StorageService {
     }
     
     @Override
+    public String readFileAsText(String blobName) throws IOException {
+        try {
+            BlobClient blobClient = containerClient.getBlobClient(blobName);
+
+            if (!blobClient.exists()) {
+                throw new IOException("Blob not found: " + blobName);
+            }
+
+            // Download blob content as byte array
+            byte[] content = blobClient.downloadContent().toBytes();
+
+            // Convert to string
+            String text = new String(content, java.nio.charset.StandardCharsets.UTF_8);
+
+            logger.info("Read {} bytes from blob: {}", content.length, blobName);
+            return text;
+        } catch (Exception e) {
+            logger.error("Failed to read blob as text: {}", blobName, e);
+            throw new IOException("Failed to read file content: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
     public void deleteFile(String blobName) {
         try {
             BlobClient blobClient = containerClient.getBlobClient(blobName);

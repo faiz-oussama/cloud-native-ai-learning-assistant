@@ -78,6 +78,21 @@ public class LocalStorageService implements StorageService {
     }
     
     @Override
+    public String readFileAsText(String fileName) throws IOException {
+        Path filePath = rootLocation.resolve(fileName);
+        if (!Files.exists(filePath)) {
+            throw new IOException("File not found: " + fileName);
+        }
+
+        // Read all bytes and convert to string (works for text files)
+        byte[] bytes = Files.readAllBytes(filePath);
+        String content = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+
+        logger.info("Read {} bytes from file: {}", bytes.length, fileName);
+        return content;
+    }
+
+    @Override
     public void deleteFile(String fileName) {
         try {
             Path file = rootLocation.resolve(fileName);

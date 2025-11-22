@@ -17,6 +17,11 @@ public interface StorageService {
     Path loadFile(String fileName);
     
     /**
+     * Read file content as text
+     */
+    String readFileAsText(String fileName) throws IOException;
+
+    /**
      * Delete a file
      */
     void deleteFile(String fileName);

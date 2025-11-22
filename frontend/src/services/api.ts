@@ -21,6 +21,7 @@ export interface Document {
   processingStatus: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
   uploadedAt: string;
   processedAt?: string;
+  extractedText?: string; // Full text content of the document
 }
 
 export interface ChatSession {
@@ -50,6 +51,46 @@ export interface ChatMessageResponse {
   sessionId: string;
   userMessage: Message;
   assistantMessage: Message;
+}
+
+// Quiz Types
+export interface Question {
+  id: number;
+  questionText: string;
+  options: string[];
+  correctAnswer: string;
+}
+
+export interface Quiz {
+  id: number;
+  title: string;
+  questions: Question[];
+  documentContext?: string;
+}
+
+export interface QuizSubmission {
+  id: number;
+  quiz: Quiz;
+  userId: number;
+  answers: Record<number, string>;
+  score: number;
+}
+
+export interface Feedback {
+  questionId: number;
+  yourAnswer: string;
+  correctAnswer: string;
+  isCorrect: boolean;
+  explanation: string;
+}
+
+export interface QuizResult {
+  quizId: number;
+  submissionId: number;
+  correctAnswers: number;
+  totalQuestions: number;
+  score: number;
+  feedback: Feedback[];
 }
 
 // API Client
@@ -136,6 +177,10 @@ class APIClient {
     return this.request<Document[]>(API_ENDPOINTS.documents.userDocuments(userId));
   }
 
+  async getDocument(documentId: string): Promise<Document> {
+    return this.request<Document>(`${API_ENDPOINTS.documents.base}/api/documents/${documentId}`);
+  }
+
   async deleteDocument(documentId: string): Promise<void> {
     await this.request(API_ENDPOINTS.documents.delete(documentId), {
       method: 'DELETE',
@@ -177,6 +222,46 @@ class APIClient {
     await this.request(url, {
       method: 'DELETE',
     });
+  }
+
+  // Quiz APIs
+  async createQuiz(
+    title: string,
+    userId: number,
+    options: { documentId?: string; documentText?: string }
+  ): Promise<Quiz> {
+    if (!options.documentId && !options.documentText) {
+      throw new Error('Either documentId or documentText must be provided');
+    }
+
+    return this.request<Quiz>(API_ENDPOINTS.quiz.create, {
+      method: 'POST',
+      body: JSON.stringify({
+        title,
+        userId,
+        documentId: options.documentId,
+        documentText: options.documentText
+      }),
+    });
+  }
+
+  async getQuiz(quizId: number): Promise<Quiz> {
+    return this.request<Quiz>(API_ENDPOINTS.quiz.getQuiz(quizId));
+  }
+
+  async submitQuiz(quizId: number, userId: number, answers: Record<number, string>): Promise<QuizResult> {
+    return this.request<QuizResult>(API_ENDPOINTS.quiz.submit(quizId), {
+      method: 'POST',
+      body: JSON.stringify({ userId, answers }),
+    });
+  }
+
+  async getUserSubmissions(userId: number): Promise<QuizSubmission[]> {
+    return this.request<QuizSubmission[]>(API_ENDPOINTS.quiz.userSubmissions(userId));
+  }
+
+  async getTestQuiz(): Promise<Quiz> {
+    return this.request<Quiz>(API_ENDPOINTS.quiz.test);
   }
 }
 

@@ -42,13 +42,24 @@ class ExplanationRequest(BaseModel):
 QUIZ_PROMPT = """
 You are an expert quiz generator.
 You MUST generate a quiz in strictly valid JSON format.
-The JSON must be an array of objects, where each object has:
+The JSON must be an object with a "questions" array.
+Each question object in the array must have:
 - "question": The question string.
-- "options": An array of 4 possible answers (strings).
+- "options": An array of exactly 4 possible answers (strings).
 - "correct_answer": The exact string of the correct option from the array.
 
-You MUST return ONLY the raw JSON, with no other text, comments, or markdown.
-Your response MUST start with [ and end with ].
+Example format:
+{
+  "questions": [
+    {
+      "question": "What is 2+2?",
+      "options": ["3", "4", "5", "6"],
+      "correct_answer": "4"
+    }
+  ]
+}
+
+You MUST return ONLY the raw JSON with no other text, comments, or markdown.
 """
 
 EXPLANATION_PROMPT = """
@@ -61,7 +72,7 @@ using the provided context. Keep it concise (2-3 sentences).
 # --- API Endpoints ---
 @app.post("/generate-quiz")
 async def generate_quiz(request: QuizGenerationRequest):
-    logger.info(f"Received quiz request, difficulty: {request.difficulty}")
+    logger.info(f"Received quiz request: {request.num_questions} questions, difficulty: {request.difficulty}")
     try:
         response = client.chat.completions.create(
             model=deployment_name,
@@ -70,32 +81,35 @@ async def generate_quiz(request: QuizGenerationRequest):
                 {"role": "user", "content": f"Generate {request.num_questions} {request.difficulty} questions based on this text:\n\n{request.text_content}"}
             ],
             temperature=0.7,
-            max_tokens=1000,
-            # This is the correct format for gpt-4o
-            response_format={"type": "json_object"} 
+            max_tokens=2000,  # Increased for multiple questions
+            response_format={"type": "json_object"}
         )
 
-        # --- AFTER ---
         raw_content = response.choices[0].message.content
+        logger.info(f"Raw AI response: {raw_content[:200]}...")  # Log first 200 chars
+
         quiz_data = json.loads(raw_content)
+        logger.info(f"Parsed quiz_data type: {type(quiz_data)}, keys: {quiz_data.keys() if isinstance(quiz_data, dict) else 'N/A'}")
 
-        # The AI wraps the list in an object, e.g., {"questions": [...] }
-        # We must extract the list and return *only* that.
-
-        # Handle if it's {"questions": [...] }
+        # The AI should wrap the list in {"questions": [...]}
         if isinstance(quiz_data, dict) and "questions" in quiz_data:
-            return quiz_data["questions"]
-        # Handle if it just returned the list correctly
+            questions_list = quiz_data["questions"]
+            logger.info(f"Successfully extracted {len(questions_list)} questions")
+            return questions_list
+        # Fallback: if it just returned the list directly
         elif isinstance(quiz_data, list):
+            logger.info(f"AI returned a list directly with {len(quiz_data)} questions")
             return quiz_data
-        # Handle if it just returned a single object (fallback)
+        # Fallback: if it returned a single question object
         elif isinstance(quiz_data, dict):
+            logger.warning("AI returned a single question object, wrapping in array")
             return [quiz_data]
         else:
+            logger.error(f"Unexpected format: {type(quiz_data)}")
             raise HTTPException(status_code=500, detail="AI returned unexpected JSON format")
 
     except Exception as e:
-        logger.error(f"Error in generate_quiz: {e}")
+        logger.error(f"Error in generate_quiz: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
