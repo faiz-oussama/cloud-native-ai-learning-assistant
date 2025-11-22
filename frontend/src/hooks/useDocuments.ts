@@ -2,7 +2,18 @@ import { useState, useCallback } from 'react';
 import { apiClient } from '@/services/api';
 import type { Document } from '@/services/api';
 
-export const useDocuments = (userId: string) => {
+export interface UseDocumentsReturn {
+  documents: Document[];
+  isUploading: boolean;
+  uploadProgress: number;
+  isLoading: boolean;
+  error: string | null;
+  loadDocuments: () => Promise<void>;
+  uploadDocument: (file: File) => Promise<Document | null>;
+  deleteDocument: (documentId: string) => Promise<void>;
+}
+
+export const useDocuments = (userId: string): UseDocumentsReturn => {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -11,7 +22,7 @@ export const useDocuments = (userId: string) => {
 
   const loadDocuments = useCallback(async () => {
     if (!userId) return;
-    
+
     setIsLoading(true);
     setError(null);
     try {
@@ -26,37 +37,37 @@ export const useDocuments = (userId: string) => {
 
   const uploadDocument = useCallback(async (file: File) => {
     if (!userId) return null;
-    
+
     setIsUploading(true);
     setUploadProgress(0);
     setError(null);
-    
+
     try {
       // Simulate progress for better UX
       const progressInterval = setInterval(() => {
         setUploadProgress(prev => Math.min(prev + 10, 90));
       }, 200);
-      
+
       const document = await apiClient.uploadDocument(file, userId);
-      
+
       clearInterval(progressInterval);
       setUploadProgress(100);
-      
+
       setDocuments(prev => [document, ...prev]);
-      
+
       // Poll for document processing status
       const pollStatus = async (docId: string, attempts = 0): Promise<Document | null> => {
         if (attempts > 20) { // Max 20 attempts (40 seconds)
           console.warn('Document processing timeout');
           return document;
         }
-        
+
         try {
           const status = await apiClient.checkDocumentStatus(docId);
-          
+
           if (status.processingStatus === 'COMPLETED') {
             // Update document in list
-            setDocuments(prev => 
+            setDocuments(prev =>
               prev.map(d => d.documentId === docId ? status : d)
             );
             return status;
@@ -64,7 +75,7 @@ export const useDocuments = (userId: string) => {
             setError('Document processing failed');
             return null;
           }
-          
+
           // Still processing, poll again
           await new Promise(resolve => setTimeout(resolve, 2000));
           return pollStatus(docId, attempts + 1);
@@ -73,7 +84,7 @@ export const useDocuments = (userId: string) => {
           return document;
         }
       };
-      
+
       // Poll for document processing status in background
       // This polling happens separately from session creation
       pollStatus(document.documentId).then(completedDoc => {
@@ -81,12 +92,12 @@ export const useDocuments = (userId: string) => {
           console.log('Document processing completed:', completedDoc);
         }
       });
-      
+
       setTimeout(() => {
         setUploadProgress(0);
         setIsUploading(false);
       }, 500);
-      
+
       return document;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed');

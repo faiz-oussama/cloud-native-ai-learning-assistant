@@ -8,6 +8,9 @@ export const useAuth = () => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // Development mode: auto-login if DEV_MODE is enabled
+    const isDev = localStorage.getItem('DEV_MODE') === 'true' || import.meta.env.MODE === 'development';
+    
     // Check for existing session
     const token = apiClient.getToken();
     const storedUser = localStorage.getItem('user');
@@ -19,6 +22,16 @@ export const useAuth = () => {
         apiClient.clearToken();
         localStorage.removeItem('user');
       }
+    } else if (isDev && !token) {
+      // Auto-login for development
+      const devUser: User = {
+        id: 'dev-user-123',
+        username: 'developer',
+        email: 'dev@example.com'
+      };
+      setUser(devUser);
+      localStorage.setItem('user', JSON.stringify(devUser));
+      apiClient.setToken('dev-token-12345');
     }
     setIsLoading(false);
   }, []);
@@ -60,6 +73,7 @@ export const useAuth = () => {
   const logout = useCallback(() => {
     apiClient.clearToken();
     localStorage.removeItem('user');
+    localStorage.removeItem('DEV_MODE');
     setUser(null);
   }, []);
 

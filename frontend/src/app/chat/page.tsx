@@ -1,7 +1,6 @@
 'use client';
 import { Flex } from '@/components/ui/flex';
 import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
 import { ArrowUp, Lightbulb, BookOpen, BarChart3, Pencil, HelpCircle, Globe, Paperclip } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import { useChatContext } from '@/contexts/ChatContext';
@@ -17,10 +16,10 @@ export const ChatPage = () => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  
+
   const { user } = useAuthContext();
   const { messages, currentSession, isSending, sendMessage, createSession } = useChatContext();
-  const { uploadDocument, isUploading, uploadProgress, documents, loadDocuments } = useDocuments(user?.id || '');
+  const { uploadDocument, isUploading, uploadProgress, loadDocuments } = useDocuments(user?.id || '') as any;
 
   useEffect(() => {
     if (user?.id) {
@@ -62,13 +61,13 @@ export const ChatPage = () => {
 
   const handleSend = async () => {
     if (!message.trim() || isSending || !currentSession) return;
-    
+
     const msg = message;
     setMessage('');
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
-    
+
     await sendMessage(msg);
   };
 
@@ -82,7 +81,7 @@ export const ChatPage = () => {
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    
+
     try {
       const uploadedDoc = await uploadDocument(file);
       if (uploadedDoc && user?.id) {
@@ -112,15 +111,8 @@ export const ChatPage = () => {
   const hasMessages = messages.length > 0;
 
   return (
-    <div className={cn(
-      'bg-secondary w-full',
-      'absolute inset-0 flex h-full w-full flex-col',
-      !hasMessages && 'items-center justify-center'
-    )}>
-      <div className={cn(
-        'mx-auto flex w-full max-w-3xl flex-col items-start justify-start px-8',
-        hasMessages && 'h-full'
-      )}>
+    <div className="bg-secondary w-full h-full flex flex-col pt-16">
+      <div className="mx-auto flex w-full max-w-3xl flex-col flex-1 items-start justify-start px-8 py-8 gap-4">
         {/* Messages View */}
         {hasMessages && (
           <div className="flex-1 w-full overflow-y-auto py-4 space-y-4">
@@ -144,26 +136,50 @@ export const ChatPage = () => {
         {/* Empty State */}
         {!hasMessages && (
           <Flex
-            items="start"
-            justify="start"
+            items="center"
+            justify="center"
             direction="col"
-            className="w-full pb-4 h-full"
+            className="w-full flex-1"
           >
             <div className="mb-4 flex w-full flex-col items-center gap-1">
-            <Flex
-              direction="col"
-              className="relative h-[60px] w-full items-center justify-center overflow-hidden"
-            >
-              <h1 className="from-muted-foreground/50 via-muted-foreground/40 to-muted-foreground/20 bg-gradient-to-r bg-clip-text text-center text-[32px] font-semibold tracking-tight text-transparent">
-                {greeting}
-              </h1>
-            </Flex>
+              <Flex
+                direction="col"
+                className="relative h-[60px] w-full items-center justify-center overflow-hidden"
+              >
+                <h1 className="from-muted-foreground/50 via-muted-foreground/40 to-muted-foreground/20 bg-gradient-to-r bg-clip-text text-center text-[32px] font-semibold tracking-tight text-transparent">
+                  {greeting}
+                </h1>
+              </Flex>
+            </div>
+
+            {/* Example Prompts */}
+            <div className="mt-6 flex w-full flex-wrap items-center justify-center gap-2 px-3">
+              <Button variant="bordered" size="sm" rounded="full" className="text-xs">
+                <HelpCircle className="h-3.5 w-3.5" />
+                How to
+              </Button>
+              <Button variant="bordered" size="sm" rounded="full" className="text-xs">
+                <Lightbulb className="h-3.5 w-3.5" />
+                Explain Concepts
+              </Button>
+              <Button variant="bordered" size="sm" rounded="full" className="text-xs">
+                <Pencil className="h-3.5 w-3.5" />
+                Creative
+              </Button>
+              <Button variant="bordered" size="sm" rounded="full" className="text-xs">
+                <BookOpen className="h-3.5 w-3.5" />
+                Advice
+              </Button>
+              <Button variant="bordered" size="sm" rounded="full" className="text-xs">
+                <BarChart3 className="h-3.5 w-3.5" />
+                Analysis
+              </Button>
             </div>
           </Flex>
         )}
 
-        {/* Input Area */}
-        <div className={cn('w-full px-3', hasMessages && 'sticky bottom-0 pb-4')}>
+        {/* Input Area - Always at bottom */}
+        <div className="w-full px-3">
           {isUploading && (
             <div className="mb-2 text-xs text-muted-foreground">
               Uploading... {uploadProgress}%
@@ -210,8 +226,8 @@ export const ChatPage = () => {
                       onChange={handleFileUpload}
                       className="hidden"
                     />
-                    <Button 
-                      variant="ghost" 
+                    <Button
+                      variant="ghost"
                       size="icon-xs"
                       onClick={() => fileInputRef.current?.click()}
                       disabled={isUploading}
@@ -237,43 +253,6 @@ export const ChatPage = () => {
             </div>
           </Flex>
         </div>
-
-        {/* Example Prompts - Only show in empty state */}
-        {!hasMessages && (
-          <div className="mt-6 flex w-full flex-wrap items-center justify-center gap-2 px-3">
-            <Button variant="bordered" size="sm" rounded="full" className="text-xs">
-              <HelpCircle className="h-3.5 w-3.5" />
-              How to
-            </Button>
-            <Button variant="bordered" size="sm" rounded="full" className="text-xs">
-              <Lightbulb className="h-3.5 w-3.5" />
-              Explain Concepts
-            </Button>
-            <Button variant="bordered" size="sm" rounded="full" className="text-xs">
-              <Pencil className="h-3.5 w-3.5" />
-              Creative
-            </Button>
-            <Button variant="bordered" size="sm" rounded="full" className="text-xs">
-              <BookOpen className="h-3.5 w-3.5" />
-              Advice
-            </Button>
-            <Button variant="bordered" size="sm" rounded="full" className="text-xs">
-              <BarChart3 className="h-3.5 w-3.5" />
-              Analysis
-            </Button>
-          </div>
-        )}
-
-        {/* Footer */}
-        {!hasMessages && (
-          <div className="absolute bottom-4 left-0 right-0 flex items-center justify-center gap-4 text-xs text-muted-foreground">
-            <a href="#" className="hover:text-foreground transition-colors opacity-50 hover:opacity-100">Star us on GitHub</a>
-            <a href="#" className="hover:text-foreground transition-colors opacity-50 hover:opacity-100">Changelog</a>
-            <a href="#" className="hover:text-foreground transition-colors opacity-50 hover:opacity-100">Feedback</a>
-            <a href="#" className="hover:text-foreground transition-colors opacity-50 hover:opacity-100">Terms</a>
-            <a href="#" className="hover:text-foreground transition-colors opacity-50 hover:opacity-100">Privacy</a>
-          </div>
-        )}
       </div>
     </div>
   );
